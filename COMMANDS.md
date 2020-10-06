@@ -49,4 +49,11 @@ GOOS=linux GOARCH=386 go build -o ServiceManagement.linux32 ServiceManagement_pl
 GOOS=windows GOARCH=amd64 go build -o ServiceManagement.win64 ServiceManagement_plugin.go
 GOOS=windows GOARCH=386 go build -o ServiceManagement.win32 ServiceManagement_plugin.go
 
+shasum -a 1 ServiceManagement.linux64
+shasum -a 1 ServiceManagement.linux32
+shasum -a 1 ServiceManagement.osx
+shasum -a 1 ServiceManagement.win32
+shasum -a 1 ServiceManagement.win64
+
+
 ```
