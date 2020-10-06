@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 -->
 [![REUSE status](https://api.reuse.software/badge/github.com/SAP-samples/cloud-sfsf-benefits-ext)](https://api.reuse.software/info/github.com/SAP-samples/cloud-sfsf-benefits-ext)
 
-# CF CLI service management plugin
+# service management plugin for Cloud Foundry tools
 
 This is a Cloud Foundry(CF) Command Line Interface(CLI) plugin designed to make it easier when using the [Service Management](https://help.sap.com/viewer/product/SERVICEMANAGEMENT/Cloud/en-US) service in Cloud Foundry. It uses the service manager REST API to get details of service instances that the service management service has created.
 
