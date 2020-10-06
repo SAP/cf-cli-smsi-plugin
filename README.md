@@ -5,10 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 -->
 [![REUSE status](https://api.reuse.software/badge/github.com/SAP-samples/cloud-sfsf-benefits-ext)](https://api.reuse.software/info/github.com/SAP-samples/cloud-sfsf-benefits-ext)
 
-# cf-cli-smsi-plugin 
-# CF CLI Service Management Service Instance Plugin
+# CF CLI service management plugin
 
-This is a Cloud Foundry CLI plugin designed to make it easier when using the [Service Management](https://help.sap.com/viewer/product/SERVICEMANAGEMENT/Cloud/en-US) service in Cloud Foundry. It uses the service manager REST API to get details of service instances that the service management service has created.
+This is a Cloud Foundry(CF) Command Line Interface(CLI) plugin designed to make it easier when using the [Service Management](https://help.sap.com/viewer/product/SERVICEMANAGEMENT/Cloud/en-US) service in Cloud Foundry. It uses the service manager REST API to get details of service instances that the service management service has created.
 
 # Requirements
 Installed CloudFoundry CLI - ensure that CloudFoundry CLI is installed and working. For more information about installation of CloudFoundry CLI, please visit the official CloudFoundry [documentation](https://docs.cloudfoundry.org/cf-cli/install-go-cli.html).
@@ -21,9 +20,9 @@ Check whether you have a previous version installed, using the command: `cf plug
 
 ## CF Community Plugin Repository
 
-Hopefully the ServiceManagement CF CLI Plugin will soon be available on the CF Community Repository. To install the latest available version of the ServiceManagement CLI Plugin execute the following:
+ServiceManagement CF CLI Plugin is available on the CF Community Repository. To install the latest available version of the ServiceManagement CLI Plugin execute the following:
 
-`cf install-plugin ServiceManagement`
+`cf install-plugin service-management`
 
 If you do not have the community repository in your CF CLI you can add it first by executing:
 
@@ -66,8 +65,6 @@ Examples:
 
 ```cf service-manager-service-instances my-sm -credentials```
 
-```cf smsi```
-
 ```cf smsi my-sm -credentials -o JSON```
 
 ```cf smsi my-sm -credentials -o JSON > my-results.json```
@@ -77,6 +74,12 @@ Examples:
 ```cf smsi my-sm -credentials > my-results.txt```
 
 ```cf smsi my-sm -credentials -o SQLTools -offering hanatrial -plan schema```
+
+```cf smsi```
+
+```cf smsi -m```
+
+```cf smsi -m -f```
 
 For more information, see the command help output available via `cf [command] --help` or `cf help [command]`.
 
