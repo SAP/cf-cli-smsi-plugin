@@ -34,7 +34,7 @@ If you do not have the community repository in your CF CLI you can add it first 
 Alternatively you can install any version of the plugin by manually downloading it from the releases page and installing the binaries for your specific operating system.
 
 ### Download
-The latest version of the plugin can also be downloaded from the project's [releases](https://github.com/andrewlunde/ServiceManagement/releases/latest). Download the plugin for your platform (Darwin, Linux, Windows). The name for the correct plugin for each platform can be found in the table below.
+The latest version of the plugin can also be downloaded from the project's [releases](https://github.com/SAP/cf-cli-smsi-plugin/releases/latest). Download the plugin for your platform (Darwin, Linux, Windows). The name for the correct plugin for each platform can be found in the table below.
 
 Mac OS X 64 bit | Windows 64 bit | Windows 32 bit | Linux 64 bit | Linux 32 bit
 --- | --- | --- | --- | ---
