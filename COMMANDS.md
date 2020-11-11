@@ -43,9 +43,9 @@ windows/amd64 (known as win64)
 darwin /amd64 (known as osx)
 
 ```
-GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go
 GOOS=linux GOARCH=amd64 go build -o ServiceManagement.linux64 ServiceManagement_plugin.go
 GOOS=linux GOARCH=386 go build -o ServiceManagement.linux32 ServiceManagement_plugin.go
+GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go
 GOOS=windows GOARCH=amd64 go build -o ServiceManagement.win64 ServiceManagement_plugin.go
 GOOS=windows GOARCH=386 go build -o ServiceManagement.win32 ServiceManagement_plugin.go
 

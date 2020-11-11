@@ -52,6 +52,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	modifySettings := flags.Bool("m", false, "Modify settings.json")
 	forceUpdates := flags.Bool("f", false, "Force updates (requires -m)")
 	offerAll := flags.Bool("a", false, "Offer All Containers option")
+	outputCV := flags.Bool("cv", false, "CalcView option")
 	err := flags.Parse(args[1:])
 	handleError(err)
 
@@ -451,6 +452,10 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 
 							addConn += `` + `}` + "\n"
 
+							if *outputCV {
+								fmt.Printf("\nXXXName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
+							}
+
 						}
 					}
 				}, "items")
@@ -835,7 +840,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Version: plugin.VersionType{
 			Major: 1,
 			Minor: 1,
-			Build: 1,
+			Build: 2,
 		},
 		MinCliVersion: plugin.VersionType{
 			Major: 6,
@@ -848,7 +853,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 				Alias:    "smsi",
 				HelpText: "Show service manager service instances for a service offering and plan.",
 				UsageDetails: plugin.Usage{
-					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a]",
+					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a] [-cv]",
 					Options: map[string]string{
 						"credentials": "Show credentials",
 						"meta":        "Include Meta containers",
@@ -859,6 +864,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 						"m":           "Modify settings.json",
 						"f":           "Force updates (requires -m)",
 						"a":           "Offer All Containers option",
+						"cv":          "Output CalcView",
 					},
 				},
 			},
