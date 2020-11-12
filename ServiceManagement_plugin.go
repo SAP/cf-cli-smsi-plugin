@@ -18,6 +18,13 @@ import (
 	"code.cloudfoundry.org/cli/plugin"
 
 	"github.com/buger/jsonparser"
+
+	"crypto/tls"
+	"database/sql"
+	"github.com/SAP/go-hdb/driver"
+	// Register hdb driver.
+	_ "github.com/SAP/go-hdb/driver"
+
 )
 
 type ServiceManagementPlugin struct {
@@ -39,6 +46,19 @@ type Containers struct {
 	TenantID    string
 }
 
+type TablesViews struct {
+	TableViewName string
+	TableViewType string
+}
+
+type ColumnDetails struct {
+	ColumnName string
+	ColumnType string
+	ColumnAggr string
+}
+
+
+
 func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args []string) {
 
 	// flags
@@ -53,6 +73,9 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	forceUpdates := flags.Bool("f", false, "Force updates (requires -m)")
 	offerAll := flags.Bool("a", false, "Offer All Containers option")
 	outputCV := flags.Bool("cv", false, "CalcView option")
+	// allTables := flags.Bool("at", false, "Process all tables option")
+	allViews := flags.Bool("av", false, "Process all views option")
+	autoAssign := flags.Bool("aa", false, "Auto assign attributes/measures option")
 	err := flags.Parse(args[1:])
 	handleError(err)
 
@@ -241,102 +264,20 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 				numItems, err = jsonparser.GetInt(body4Bytes, "num_items")
 				handleError(err)
 
-				foundContainers := []Containers{}
-				var addConn = `{`
+				//fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, serviceOfferingName, servicePlanName)
 
-				// for each item
-				var item = 0
-				var isMeta = false
-				jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-					isMeta = false
-					id, _ := jsonparser.GetString(value, "id")
-
-					// get service binding
-					url5, err := jsonparser.GetString([]byte(strings.Join(serviceKey, "")), "sm_url")
-					handleError(err)
-					req5, err := http.NewRequest("GET", url5+"/v1/service_bindings", nil)
-					handleError(err)
-					q5 := req5.URL.Query()
-					q5.Add("fieldQuery", "service_instance_id eq '"+id+"'")
-					req5.URL.RawQuery = q5.Encode()
-					req5.Header.Set("Authorization", "Bearer "+accessToken)
-					res5, err := cli.Do(req5)
-					handleError(err)
-					defer res5.Body.Close()
-					body5Bytes, err := ioutil.ReadAll(res5.Body)
-					handleError(err)
-
-					tenantID, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "labels", "tenant_id", "[0]")
-
-					//spaceName, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "context", "space_name")
-
-					var splits = strings.Split(tenantID, "-")
-					if splits[0] == "TENANT" {
-						isMeta = true
-					}
-
-					if !isMeta || (isMeta && *includeMeta) {
-						//fmt.Printf("%d: %s \n", item, tenantID)
-						container := Containers{ContainerID: id, TenantID: tenantID}
-						foundContainers = append(foundContainers, container)
-						item = item + 1
-					}
-				}, "items")
-
-				whichID := "ALL"
-
-				if len(foundContainers) > 1 {
-					if *offerAll {
-						fmt.Printf("%d: %s \n", 0, "Include All")
-					}
-					for i := 0; i < len(foundContainers); i++ {
-						fmt.Printf("%d. %s \n", i+1, foundContainers[i].TenantID)
-					}
-
-					fmt.Print("Container> ")
-					var input string
-					fmt.Scanln(&input)
-					cidx, _ := strconv.Atoi(input)
-					if cidx == 0 && *offerAll {
-						fmt.Printf("Using: %s \n", "All Containers")
-					} else {
-						whichContainer := foundContainers[cidx-1].TenantID
-						fmt.Printf("Using: %s \n", whichContainer)
-						whichID = foundContainers[cidx-1].ContainerID
-						item = 1
-					}
+				if numItems < 1 {
+					fmt.Printf("Subscribe at least one subaccount to your multitenant application and rerun.\n")
 				} else {
-					whichID = foundContainers[0].ContainerID
-					item = 1
-				}
+					foundContainers := []Containers{}
+					var addConn = `{`
 
-				switch outputFormat {
-				case "json":
-					fmt.Printf("{\n\"service_offering\": \"%s\", \n\"service_plan\": \"%s\", \n\"num_items\": %d, \n\"items\": \n [\n", serviceOfferingName, servicePlanName, item)
-				case "sqltools":
-					fmt.Printf(`{"sqltools.connections": [`)
-				case "txt":
-					if !*modifySettings {
-						fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, serviceOfferingName, servicePlanName)
-					}
-				}
-
-				// for each item
-				item = 0
-				isMeta = false
-				jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-					//item = item + 1
-					isMeta = false
-					id, _ := jsonparser.GetString(value, "id")
-
-					name, _ := jsonparser.GetString(value, "name")
-
-					createdAt, _ := jsonparser.GetString(value, "created_at")
-					updatedAt, _ := jsonparser.GetString(value, "updated_at")
-					ready, _ := jsonparser.GetBoolean(value, "ready")
-					usable, _ := jsonparser.GetBoolean(value, "usable")
-
-					if (whichID == id) || (whichID == "ALL") {
+					// for each item
+					var item = 0
+					var isMeta = false
+					jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+						isMeta = false
+						id, _ := jsonparser.GetString(value, "id")
 
 						// get service binding
 						url5, err := jsonparser.GetString([]byte(strings.Join(serviceKey, "")), "sm_url")
@@ -352,477 +293,871 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						defer res5.Body.Close()
 						body5Bytes, err := ioutil.ReadAll(res5.Body)
 						handleError(err)
-						host, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "host")
-
-						port, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "port")
-
-						driver, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "driver")
-						schema, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "schema")
-
-						certificate, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "certificate")
-						re := regexp.MustCompile(`\n`)
-						certificate = re.ReplaceAllString(certificate, "")
-						url, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "url")
-						user, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "user")
-						password, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "password")
-						var hdiuser = ""
-						var hdipassword = ""
-						if servicePlanName == "hdi-shared" {
-							hdiuser, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
-							hdipassword, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
-						}
 
 						tenantID, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "labels", "tenant_id", "[0]")
 
-						spaceName, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "context", "space_name")
+						//spaceName, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "context", "space_name")
 
 						var splits = strings.Split(tenantID, "-")
 						if splits[0] == "TENANT" {
 							isMeta = true
 						}
 
-						//name = serviceManagerName + ":" + tenantID
-						//name = tenantID
-
-						// Need to use the SAPCP API to get the subdomain from the subaccount GUID which is the tenantID
-						// sapcp get accounts/subaccount b44f32d4-6e31-4d95-b17f-6c6fcdb37e1f
-
 						if !isMeta || (isMeta && *includeMeta) {
+							//fmt.Printf("%d: %s \n", item, tenantID)
+							container := Containers{ContainerID: id, TenantID: tenantID}
+							foundContainers = append(foundContainers, container)
 							item = item + 1
-							if outputFormat == "json" {
-								if item > 1 {
-									fmt.Printf(",\n")
-								}
-								fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
-								if *showCredentials {
-									fmt.Printf(", \n  \"user\": \"%s\", \n  \"password\": \"%s\", \n  \"certificate\": \"%s\"", user, password, certificate)
-									if servicePlanName == "hdi-shared" && *includeOwner {
-										fmt.Printf(",\n  \"hdi_user\": \"%s\", \n  \"hdi_password\": \"%s\"", hdiuser, hdipassword)
-									}
-								}
-								fmt.Printf("\n  }")
-							} else if outputFormat == "sqltools" {
-								if item > 1 {
-									fmt.Printf(`,`)
-								}
-								fmt.Printf(`{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+tenantID, host, port, schema, user, password, certificate)
-								if servicePlanName == "hdi-shared" && *includeOwner {
-									fmt.Printf(`,{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+spaceName+":"+tenantID+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
-								}
-							} else {
-								//txt
-								fmt.Printf("\nName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
-								if *showCredentials {
-									fmt.Printf("User: %s \nPassword: %s \nCertificate: %s \n", user, password, certificate)
-									if servicePlanName == "hdi-shared" && *includeOwner {
-										fmt.Printf("HDIUser: %s \nHDIPassword: %s \n", hdiuser, hdipassword)
-									}
-								}
-								// fmt.Printf("TenantID: %s \n", tenantID)
-							}
-							if item > 1 {
-								addConn += `},{`
-							}
-							// Put all the addConn stuff here
-							addConn += "\n" + `"name": "` + serviceManagerName + `:` + spaceName + `:` + tenantID + `",` + "\n"
-							addConn += `"group": "` + serviceManagerName + `:` + spaceName + `",` + "\n"
-							addConn += `"driver": "` + `SAPHana` + `",` + "\n"
-							addConn += `"dialect": "` + `SAPHana` + `",` + "\n"
-
-							addConn += `"server": "` + host + `",` + "\n"
-							addConn += `"port": ` + port + `,` + "\n"
-
-							addConn += `"database": "` + schema + `",` + "\n"
-
-							if *includeOwner {
-								addConn += `"username": "` + hdiuser + `",` + "\n"
-								addConn += `"password": "` + hdipassword + `",` + "\n"
-							} else {
-								addConn += `"username": "` + user + `",` + "\n"
-								addConn += `"password": "` + password + `",` + "\n"
-							}
-
-							addConn += `"previewLimit": ` + `50` + `,` + "\n"
-							addConn += `"connectionTimeout": ` + `30` + `,` + "\n"
-							addConn += `"hanaOptions": ` + `{` + `` + "\n"
-							addConn += `     "encrypt": ` + `true` + `,` + "\n"
-							addConn += `     "sslValidateCertificate": ` + `true` + `,` + "\n"
-							addConn += `     "sslCryptoProvider": ` + `"openssl"` + `,` + "\n"
-							addConn += `     "sslTrustStore": "` + certificate + `"` + "\n"
-
-							addConn += `` + `}` + "\n"
-
-							if *outputCV {
-								fmt.Printf("\nXXXName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
-							}
-
 						}
-					}
-				}, "items")
+					}, "items")
 
-				switch outputFormat {
-				case "json":
-					fmt.Println("\n ]\n}\n")
-				case "sqltools":
-					fmt.Println(`]}`)
-				}
+					whichID := "ALL"
 
-				addConn += `}`
-
-				// =====================================================================
-				// =====================================================================
-				// =====================================================================
-				// modifySettings = mod_settings.go
-				// =====================================================================
-				// =====================================================================
-				// =====================================================================
-
-				if *modifySettings {
-					fmt.Println("")
-					fmt.Println("modifySettings: " + "true")
-					if *forceUpdates {
-						fmt.Println("forceUpdates: " + "true")
-					} else {
-						fmt.Println("forceUpdates: " + "false")
-					}
-
-					fmt.Println("")
-
-					// fmt.Println("addConn: " + addConn)
-
-					//fmt.Println(runtime.GOOS)
-					//fmt.Println(runtime.GOARCH)
-
-					user, err := user.Current()
-					if err != nil {
-						log.Fatalf(err.Error())
-					}
-					homeDirectory := user.HomeDir
-					fmt.Printf("Home Directory: %s\n", homeDirectory)
-
-					var inSettings = false
-					var isBAS = false
-					// Scan for *.theia-workspace files in BAS ??
-					var defaultsFile = "Unknown"
-					//var defaultsExists = false
-
-					var settingsFile = "Unknown"
-					var settingsExists = false
-
-					var skipping = false
-
-					switch runtime.GOOS {
-					case "darwin":
-						fmt.Println("On Mac:")
-						//
-						// The current code-workspace file can be found by looking here.
-						// cat $HOME/Library/Application\ Support/Code/storage.json | grep -A 3 lastActiveWindow
-						// User (GLOBAL) settings file
-						// If this(User) file has a sqltools.connections object but the current code-workspace files doesn't
-						// then this is used.  Otherwise it's ignored as soon as the code-workspace settings->sqltools.connections exists
-						// Currently SQLTools won't allow writing settings into the User file, but will display them if they already exist.
-						settingsFile = homeDirectory + "/Library/Application Support/Code/User/settings.json"
-
-						defaultsFile = homeDirectory + "/Library/Application Support/Code/storage.json"
-						byteValue, err := ioutil.ReadFile(defaultsFile)
-						if err == nil {
-							configURIPath, err := jsonparser.GetString(byteValue, "windowsState", "lastActiveWindow", "workspaceIdentifier", "configURIPath")
-							if err == nil {
-								fmt.Println("configURIPath: " + configURIPath)
-								settingsFile = "/" + strings.TrimLeft(configURIPath, "file:/")
-								inSettings = true // File has sqltools.connections at the top-level
-							}
+					if len(foundContainers) > 1 {
+						if *offerAll {
+							fmt.Printf("%d: %s \n", 0, "Include All")
+						}
+						for i := 0; i < len(foundContainers); i++ {
+							fmt.Printf("%d. %s \n", i+1, foundContainers[i].TenantID)
 						}
 
-					case "linux":
-						fmt.Println("On Linux:")
-
-						// Check to see if BAS
-						settingsFile = homeDirectory + "/.theia/settings.json"
-						if _, err := os.Stat(settingsFile); err == nil {
-							// path/to/whatever exists
-							fmt.Println("We are in BAS since " + settingsFile + " Exists!")
-							inSettings = false
-							isBAS = true
-						}
-
-						if inSettings {
-							settingsFile = "~/Code/User/"
-						} else { //User(Global) Settings
-							if !isBAS {
-								settingsFile = homeDirectory + "/.config/Code/User/settings.json"
-							}
-						}
-
-					case "windows":
-						fmt.Println("On Windoz:")
-
-						appData := os.Getenv("APPDATA")
-						fmt.Printf("appData: %s\n", appData)
-
-						//APPDATA=C:\Users\I830671\AppData\Roaming
-
-						defaultsFile = appData + "/Code/storage.json"
-						fmt.Println("defaultsFile: " + defaultsFile)
-
-						byteValue, err := ioutil.ReadFile(defaultsFile)
-						if err == nil {
-							configURIPath, err := jsonparser.GetString(byteValue, "windowsState", "lastActiveWindow", "workspaceIdentifier", "configURIPath")
-							if err == nil {
-								fmt.Println("configURIPath: " + configURIPath)
-								settingsFile = strings.TrimLeft(configURIPath, "file:/")
-								settingsFile = strings.Replace(settingsFile, "%3A", ":", -1)
-								//fmt.Println("settingsFile: " + settingsFile)
-								inSettings = true // File has sqltools.connections at the top-level
-							}
-						}
-					}
-
-					fmt.Println("settingsFile: " + settingsFile)
-					if inSettings {
-						fmt.Println("Look in settings...")
-					} else {
-						fmt.Println("Look at top-level..")
-					}
-
-					if _, err := os.Stat(settingsFile); err == nil {
-						// path/to/whatever exists
-						fmt.Println("settingsFile: " + settingsFile + " Exists!")
-						settingsExists = true
-
-					} else if os.IsNotExist(err) {
-						// path/to/whatever does *not* exist
-						fmt.Println("settingsFile: " + settingsFile + " Does NOT Exist!")
-
-					} else {
-						// Schrodinger: file may or may not exist. See err for details.
-
-						// Therefore, do *NOT* use !os.IsNotExist(err) to test for file existence
-						fmt.Println("settingsFile: " + settingsFile + " Existence Unknown!")
-						settingsExists = true
-					}
-
-					fmt.Println("")
-
-					// var newConn = `{
-					// 	"name": "CAPMT_SMC:subAcct",
-					// 	"group": "SMSI",
-					// 	"driver": "SAPHana",
-					// 	"dialect": "SAPHana",
-					// 	"server": "833726c5-cca3-4dce-a325-4385426009e7.hana.trial-us10.hanacloud.ondemand.com",
-					// 	"port": 443,
-					// 	"database": "D53EE042B6AD4E8093FF0A24F931586B",
-					// 	"username": "D53EE042B6AD4E8093FF0A24F931586B_B5IBO9PWMQ841D52POXNE26XN_RT",
-					// 	"password": "Mw9h7H.5r6CBidD2vtq.vxmzisxLAMx2_UJ9YrjZim2Yop-kUOcBII-g6VHYZMDpPzjT0PCQua.8i-V2f8MrjDqkGG6hRZAct2a2YIL7PFrlzeSDhO5qBOl6ni-VRF3t",
-					// 	"connectionTimeout": 30,
-					// 	"hanaOptions": {
-					// 		"encrypt": true,
-					// 		"sslValidateCertificate": true,
-					// 		"sslCryptoProvider": "openssl",
-					// 		"sslTrustStore": "-----BEGIN CERTIFICATE-----MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBhMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBDQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsBCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7PT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbRTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUwDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/EsrhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJFPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0lsYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQkCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=-----END CERTIFICATE-----"
-					// 		}
-					// 	}`
-
-					//connName, _ := jsonparser.GetString([]byte(newConn), "name")
-					connName, _ := jsonparser.GetString([]byte(addConn), "name")
-
-					var foundIdx int = -1
-
-					if settingsExists {
-						// read file
-						byteValue, err := ioutil.ReadFile(settingsFile)
-						if err != nil {
-							fmt.Print(err)
+						fmt.Print("Container> ")
+						var input string
+						fmt.Scanln(&input)
+						cidx, _ := strconv.Atoi(input)
+						if cidx == 0 && *offerAll {
+							fmt.Printf("Using: %s \n", "All Containers")
 						} else {
-							//err := jsonparser.GetString(data, "items", "[0]", "id")
-							//colorTheme, err := jsonparser.GetString(byteValue, "workbench.colorTheme")
-							//handleError(err)
-							//fmt.Println("colorTheme: " + colorTheme)
+							whichContainer := foundContainers[cidx-1].TenantID
+							fmt.Printf("Using: %s \n", whichContainer)
+							whichID = foundContainers[cidx-1].ContainerID
+							item = 1
+						}
+					} else {
+						whichID = foundContainers[0].ContainerID
+						item = 1
+					}
 
-							// var newValue []byte
-							// var newType jsonparser.ValueType
-							// var newOffset int = 0
+					switch outputFormat {
+					case "json":
+						fmt.Printf("{\n\"service_offering\": \"%s\", \n\"service_plan\": \"%s\", \n\"num_items\": %d, \n\"items\": \n [\n", serviceOfferingName, servicePlanName, item)
+					case "sqltools":
+						fmt.Printf(`{"sqltools.connections": [`)
+					case "txt":
+						if !*modifySettings {
+							fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, serviceOfferingName, servicePlanName)
+						}
+					}
 
-							var dataValue []byte
-							var dataType jsonparser.ValueType
-							var dataOffset int = 0
-							var needsSettings = false
+					// for each item
+					item = 0
+					isMeta = false
+					jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+						//item = item + 1
+						isMeta = false
+						id, _ := jsonparser.GetString(value, "id")
 
-							if inSettings {
-								dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings")
-								if err != nil {
-									fmt.Println("settings" + " Key path not found")
-									needsSettings = true
-								} else {
-									dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings", "sqltools.connections")
-									if err != nil {
-										fmt.Println("sqltools.connections" + " Key path not found")
-										// We can go ahead and add it.
+						name, _ := jsonparser.GetString(value, "name")
+
+						createdAt, _ := jsonparser.GetString(value, "created_at")
+						updatedAt, _ := jsonparser.GetString(value, "updated_at")
+						ready, _ := jsonparser.GetBoolean(value, "ready")
+						usable, _ := jsonparser.GetBoolean(value, "usable")
+
+						if (whichID == id) || (whichID == "ALL") {
+
+							// get service binding
+							url5, err := jsonparser.GetString([]byte(strings.Join(serviceKey, "")), "sm_url")
+							handleError(err)
+							req5, err := http.NewRequest("GET", url5+"/v1/service_bindings", nil)
+							handleError(err)
+							q5 := req5.URL.Query()
+							q5.Add("fieldQuery", "service_instance_id eq '"+id+"'")
+							req5.URL.RawQuery = q5.Encode()
+							req5.Header.Set("Authorization", "Bearer "+accessToken)
+							res5, err := cli.Do(req5)
+							handleError(err)
+							defer res5.Body.Close()
+							body5Bytes, err := ioutil.ReadAll(res5.Body)
+							handleError(err)
+							host, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "host")
+
+							port, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "port")
+
+							smdriver, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "driver")
+							schema, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "schema")
+
+							certificate, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "certificate")
+							re := regexp.MustCompile(`\n`)
+							certificate = re.ReplaceAllString(certificate, "")
+							url, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "url")
+							user, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "user")
+							password, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "password")
+							var hdiuser = ""
+							var hdipassword = ""
+							if servicePlanName == "hdi-shared" {
+								hdiuser, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
+								hdipassword, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
+							}
+
+							tenantID, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "labels", "tenant_id", "[0]")
+
+							spaceName, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "context", "space_name")
+
+							var splits = strings.Split(tenantID, "-")
+							if splits[0] == "TENANT" {
+								isMeta = true
+							}
+
+							//name = serviceManagerName + ":" + tenantID
+							//name = tenantID
+
+							// Need to use the SAPCP API to get the subdomain from the subaccount GUID which is the tenantID
+							// sapcp get accounts/subaccount b44f32d4-6e31-4d95-b17f-6c6fcdb37e1f
+
+							if !isMeta || (isMeta && *includeMeta) {
+								item = item + 1
+								if outputFormat == "json" {
+									if item > 1 {
+										fmt.Printf(",\n")
 									}
-								}
-							} else {
-								dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "sqltools.connections")
-							}
-
-							if err != nil {
-								fmt.Println("sqltools.connections" + " Key path not found")
-								// We can go ahead and add it.
-							}
-
-							// fmt.Println("dataValue: " + string(dataValue))
-							// fmt.Println("offset: ", dataOffset)
-
-							if dataType == jsonparser.NotExist {
-								fmt.Println("offset: ", dataOffset)
-								fmt.Println("sqltools.connections" + " is NotExist")
-								// IF this is the case then we can safely create a new sqltools.connections array and append it to settings
-
-								var newSQLToolsConn string
-								newSQLToolsConn = string(byteValue)
-								newSQLToolsConn = strings.TrimSpace(newSQLToolsConn)
-								newSQLToolsConn = strings.TrimRight(newSQLToolsConn, "}")
-								newSQLToolsConn = strings.TrimSpace(newSQLToolsConn)
-								newSQLToolsConn += ",\n"
-								if needsSettings {
-									fmt.Println("adding settings {} ")
-									newSQLToolsConn += "\"settings\": \n { "
-								}
-								fmt.Println("adding sqltools.connections [] ")
-								newSQLToolsConn += "\"sqltools.connections\": [ \n"
-								//newSQLToolsConn += newConn + "] }"
-								newSQLToolsConn += addConn
-								newSQLToolsConn += "\n]\n"
-								if needsSettings {
-									newSQLToolsConn += "} \n"
-								}
-								newSQLToolsConn += "} \n"
-
-								// write file
-								err = ioutil.WriteFile(settingsFile, []byte(newSQLToolsConn), 0644)
-								handleError(err)
-
-							} else if dataType == jsonparser.Array {
-								// fmt.Println("sqltools.connections" + " is an Array")
-
-								var scidx int = 0
-								jsonparser.ArrayEach(dataValue, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-									name, _ := jsonparser.GetString(value, "name")
-									// fmt.Println("name: " + name)
-									if connName != name {
-										fmt.Println("keeping: " + name)
-									} else {
-										if *modifySettings {
-											if *forceUpdates {
-												fmt.Println("replacing: " + name)
-											} else {
-												fmt.Println("duplicate: " + name)
-											}
-										} else {
-											fmt.Println("skipping: " + name)
+									fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, smdriver)
+									if *showCredentials {
+										fmt.Printf(", \n  \"user\": \"%s\", \n  \"password\": \"%s\", \n  \"certificate\": \"%s\"", user, password, certificate)
+										if servicePlanName == "hdi-shared" && *includeOwner {
+											fmt.Printf(",\n  \"hdi_user\": \"%s\", \n  \"hdi_password\": \"%s\"", hdiuser, hdipassword)
 										}
-										foundIdx = scidx
-										skipping = true
 									}
-									scidx = scidx + 1
-								})
-								// https://github.com/buger/jsonparser#set
-
-								if !skipping {
-									fmt.Println("adding:  " + connName + "")
-
-									var newSQLToolsConn string
-
-									newSQLToolsConn = string(dataValue)
-									newSQLToolsConn2 := strings.TrimRight(newSQLToolsConn, "]")
-									newSQLToolsConn = newSQLToolsConn2
-									if scidx > 0 {
-										newSQLToolsConn += ","
+									fmt.Printf("\n  }")
+								} else if outputFormat == "sqltools" {
+									if item > 1 {
+										fmt.Printf(`,`)
 									}
-									//newSQLToolsConn += newConn + "]"
-									newSQLToolsConn += addConn + "]"
+									fmt.Printf(`{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+tenantID, host, port, schema, user, password, certificate)
+									if servicePlanName == "hdi-shared" && *includeOwner {
+										fmt.Printf(`,{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+spaceName+":"+tenantID+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
+									}
+								} else {
+									//txt
+									fmt.Printf("\nName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, smdriver)
+									if *showCredentials {
+										fmt.Printf("User: %s \nPassword: %s \nCertificate: %s \n", user, password, certificate)
+										if servicePlanName == "hdi-shared" && *includeOwner {
+											fmt.Printf("HDIUser: %s \nHDIPassword: %s \n", hdiuser, hdipassword)
+										}
+									}
+									// fmt.Printf("TenantID: %s \n", tenantID)
+								}
+								if item > 1 {
+									addConn += `},{`
+								}
+								// Put all the addConn stuff here
+								addConn += "\n" + `"name": "` + serviceManagerName + `:` + spaceName + `:` + tenantID + `",` + "\n"
+								addConn += `"group": "` + serviceManagerName + `:` + spaceName + `",` + "\n"
+								addConn += `"driver": "` + `SAPHana` + `",` + "\n"
+								addConn += `"dialect": "` + `SAPHana` + `",` + "\n"
 
-									var setValue []byte
+								addConn += `"server": "` + host + `",` + "\n"
+								addConn += `"port": ` + port + `,` + "\n"
 
-									// fmt.Println("attempt set: ")
+								addConn += `"database": "` + schema + `",` + "\n"
 
-									if inSettings {
-										setValue, err = jsonparser.Set(byteValue, []byte(newSQLToolsConn), "settings", "sqltools.connections")
+								if *includeOwner {
+									addConn += `"username": "` + hdiuser + `",` + "\n"
+									addConn += `"password": "` + hdipassword + `",` + "\n"
+								} else {
+									addConn += `"username": "` + user + `",` + "\n"
+									addConn += `"password": "` + password + `",` + "\n"
+								}
+
+								addConn += `"previewLimit": ` + `50` + `,` + "\n"
+								addConn += `"connectionTimeout": ` + `30` + `,` + "\n"
+								addConn += `"hanaOptions": ` + `{` + `` + "\n"
+								addConn += `     "encrypt": ` + `true` + `,` + "\n"
+								addConn += `     "sslValidateCertificate": ` + `true` + `,` + "\n"
+								addConn += `     "sslCryptoProvider": ` + `"openssl"` + `,` + "\n"
+								addConn += `     "sslTrustStore": "` + certificate + `"` + "\n"
+
+								addConn += `` + `}` + "\n"
+
+								if *outputCV {
+									fmt.Printf("\nSchema: %s \nHost: %s \nPort: %s \n", schema, host, port)
+
+									c := driver.NewBasicAuthConnector(
+										host + ":" + port,
+										user,
+										password)
+								
+									tlsConfig := tls.Config{
+										InsecureSkipVerify: false,
+										ServerName:         host,
+									}
+								
+									c.SetTLSConfig(&tlsConfig)
+								
+									//db, err := sql.Open(driverName, hdbDsn)
+									db := sql.OpenDB(c)
+									defer db.Close()
+								
+									var s = "Unassigned"
+								
+									// s = db.Conn.DefaultSchema()
+								
+									// fmt.Print("DefaultSchema: " + s + "\n")
+								
+									if err := db.QueryRow(fmt.Sprintf("SELECT NOW() FROM DUMMY")).Scan(&s); err != nil {
+										log.Fatal(err)
+									}
+								
+									fmt.Print("Server Time: " + s + "\n")
+
+									_, err := db.Exec("SET SCHEMA " + schema)
+
+									if err != nil {
+										log.Fatal(err)
+									}
+															
+									// http://go-database-sql.org/retrieving.html
+									var (
+										tv_name  string
+										col_name string
+										col_type string
+									)
+
+									foundTablesViews := []TablesViews{}
+									item = 0
+									
+									// rows, err := db.Query("SELECT TABLE_NAME FROM M_TABLES WHERE SCHEMA_NAME='" + schema + "'")
+									// if err != nil {
+									// 	log.Fatal(err)
+									// }
+									// defer rows.Close()
+									// for rows.Next() {
+									// 	err := rows.Scan(&tv_name)
+									// 	if err != nil {
+									// 		log.Fatal(err)
+									// 	}
+									// 	fmt.Print("TABLE: " + tv_name + "\n")
+
+									// 	cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM TABLE_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND TABLE_NAME='" + tv_name + "' AND INDEX_TYPE='NONE'")
+									// 	if err != nil {
+									// 		log.Fatal(err)
+									// 	}
+									// 	defer cols.Close()
+									// 	for cols.Next() {
+									// 		err := cols.Scan(&col_name, &col_type)
+									// 		if err != nil {
+									// 			log.Fatal(err)
+									// 		}
+									// 		fmt.Print(" " + col_name + " : " + col_type + "\n")
+
+									// 	}
+									// 	err = cols.Err()
+									// 	if err != nil {
+									// 		log.Fatal(err)
+									// 	}
+
+									// 	fmt.Print("" + "\n")
+									// }
+									// err = rows.Err()
+									// if err != nil {
+									// 	log.Fatal(err)
+									// }
+		
+
+											
+
+									rows, err := db.Query("SELECT VIEW_NAME FROM VIEWS WHERE SCHEMA_NAME='" + schema + "' AND NOT VIEW_TYPE='CALC'")
+									if err != nil {
+										log.Fatal(err)
+									}
+									defer rows.Close()
+									for rows.Next() {
+										err := rows.Scan(&tv_name)
+										if err != nil {
+											log.Fatal(err)
+										}
+										// fmt.Print("VIEW: " + tv_name + "\n")
+
+										tableview := TablesViews{TableViewName: tv_name, TableViewType: "VIEW"}
+										foundTablesViews = append(foundTablesViews, tableview)
+										item = item + 1
+		
+
+										cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + tv_name + "' AND NOT COLUMN_NAME='ID'")
+										if err != nil {
+											log.Fatal(err)
+										}
+										defer cols.Close()
+										for cols.Next() {
+											err := cols.Scan(&col_name, &col_type)
+											if err != nil {
+												log.Fatal(err)
+											}
+											// fmt.Print(" " + col_name + " : " + col_type + "\n")
+
+										}
+										err = cols.Err()
+										if err != nil {
+											log.Fatal(err)
+										}
+
+										// fmt.Print("" + "\n")
+									}
+									err = rows.Err()
+									if err != nil {
+										log.Fatal(err)
+									}
+
+									whichTableViewName := "Unknown"
+									whichTableViewType := "Unknown"
+
+									if len(foundTablesViews) > 1 {
+										if *allViews {
+											fmt.Printf("%d: %s \n", 0, "Include All Views")
+										}
+										for i := 0; i < len(foundTablesViews); i++ {
+											fmt.Printf("%d. VIEW: %s \n", i+1, foundTablesViews[i].TableViewName)
+										}
+
+										if !*autoAssign {
+											fmt.Print("View> ")
+											var input string
+											fmt.Scanln(&input)
+											cidx, _ := strconv.Atoi(input)
+											if cidx == 0 && *allViews {
+												fmt.Printf("Using: %s \n", "All Views")
+											} else {
+												whichTableViewName = foundTablesViews[cidx-1].TableViewName
+												//fmt.Printf("Using: %s \n", whichTableViewName)
+												whichTableViewType = foundTablesViews[cidx-1].TableViewType
+												item = 1
+											}
+										}
 									} else {
-										setValue, err = jsonparser.Set(byteValue, []byte(newSQLToolsConn), "sqltools.connections")
+										whichTableViewName = foundTablesViews[0].TableViewName
+										whichTableViewType = foundTablesViews[0].TableViewType
+										item = 1
 									}
-									handleError(err)
+					
+									fmt.Printf("Using: %s %s\n", whichTableViewType, whichTableViewName)
 
-									//fmt.Println("after set: ")
-									// jsonparser.ArrayEach(setValue, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-									// 	name, _ := jsonparser.GetString(value, "name")
-									// 	fmt.Println("name: " + name)
-									// })
+									calcViewColumnDetails := []ColumnDetails{}
+									item = 0
 
-									// fmt.Println("newConn: " + newConn)
-									// fmt.Println("setValue: " + string(setValue))
+									cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + whichTableViewName + "' AND NOT COLUMN_NAME='ID'")
+									if err != nil {
+										log.Fatal(err)
+									}
+									defer cols.Close()
+
+									for cols.Next() {
+										err := cols.Scan(&col_name, &col_type)
+										if err != nil {
+											log.Fatal(err)
+										}
+										fmt.Print(" " + col_name + " : " + col_type + " (a=attrib, m=measure, s=skip)\n")
+										fmt.Print("Type> ")
+										var input string
+										fmt.Scanln(&input)
+										if input == "a" {
+											fmt.Print("Attribute!\n")
+											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "ATTRIB", ColumnAggr: "NA"}
+											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+											item = item + 1
+										} else if input == "m" {
+											fmt.Print("Measure!\n")
+											fmt.Print("Select aggregation " + " (v=var, s=sum, d=stddev, x=maximum, n=minimum, c=count, a=average)\n")
+											fmt.Print("Aggregation> ")
+											var aggreg string
+											fmt.Scanln(&aggreg)
+											if (aggreg != "v" && aggreg != "s" && aggreg != "d" && aggreg != "x" && aggreg != "n" && aggreg != "c" && aggreg != "a") { aggreg = "a" }
+											aggregName := "NA"
+											if aggreg == "v" {
+												aggregName = `sum" engineAggregation="var`
+											} else if aggreg == "s" {
+												aggregName = `sum`
+											} else if aggreg == "d" {
+												aggregName = `sum" engineAggregation="stddev`
+											} else if aggreg == "x" {
+												aggregName = "max"
+											} else if aggreg == "n" {
+												aggregName = "min"
+											} else if aggreg == "c" {
+												aggregName = `sum" engineAggregation="count`
+											} else if aggreg == "a" {
+												aggregName = `sum" engineAggregation="avg`
+											} else {
+												aggregName = `sum" engineAggregation="avg`
+											}
+											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "MEASURE", ColumnAggr: aggregName}
+											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+											item = item + 1
+										} else {
+											fmt.Print("Skipped!\n")
+											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "SKIP", ColumnAggr: "NA"}
+											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+											item = item + 1
+										}
+
+									}
+									err = cols.Err()
+									if err != nil {
+										log.Fatal(err)
+									}
+
+									for i := 0; i < len(calcViewColumnDetails); i++ {
+										fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+									}
+									// Now build the Calculation view.
+
+									var calcViewFile = "Unknown"
+
+									var calcViewName = "Unknown"
+
+									calcViewName = whichTableViewName + "_CALCVIEW"
+									calcViewFile = calcViewName + ".hdbcalculationview"
+
+									var calcViewXML string
+
+									calcViewXML = ""
+
+									calcViewXML += `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
+									calcViewXML += `<Calculation:scenario xmlns:Calculation="http://www.sap.com/ndb/BiModelCalculation.ecore" id="` + calcViewName + `" applyPrivilegeType="NONE" dataCategory="CUBE" schemaVersion="3.0" outputViewType="Aggregation" cacheInvalidationPeriod="HOURLY" enforceSqlExecution="false">` + "\n"
+									calcViewXML += `<descriptions defaultDescription="` + calcViewName + `"/>` + "\n"
+									calcViewXML += `<localVariables/>` + "\n"
+									calcViewXML += `<variableMappings/>` + "\n"
+									calcViewXML += `<dataSources>` + "\n"
+									calcViewXML += `  <DataSource id="` + whichTableViewName + `">` + "\n"
+									calcViewXML += `    <resourceUri>` + whichTableViewName + `</resourceUri>` + "\n"
+									calcViewXML += `  </DataSource>` + "\n"
+									calcViewXML += `</dataSources>` + "\n"
+									calcViewXML += `<calculationViews/>` + "\n"
+
+									calcViewXML += `<logicalModel id="` + whichTableViewName + `">` + "\n"
+
+									calcViewXML += `  <attributes>` + "\n"
+									var order_idx = 1
+									for i := 0; i < len(calcViewColumnDetails); i++ {
+										// fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+										if calcViewColumnDetails[i].ColumnType == "ATTRIB" {
+											calcViewXML += `    <attribute id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" displayAttribute="false" attributeHierarchyActive="false">` + "\n"
+											calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+											calcViewXML += `      <keyMapping columnObjectName="` + whichTableViewName + `" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+											calcViewXML += `    </attribute>` + "\n"
+											order_idx++
+										}
+									}
+
+									calcViewXML += `  </attributes>` + "\n"
+									calcViewXML += `  <calculatedAttributes/>` + "\n"
+
+									calcViewXML += `  <baseMeasures>` + "\n"
+
+									for i := 0; i < len(calcViewColumnDetails); i++ {
+										//fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+										if calcViewColumnDetails[i].ColumnType == "MEASURE" {
+											calcViewXML += `    <measure id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" aggregationType="` + calcViewColumnDetails[i].ColumnAggr + `" measureType="simple">` + "\n"
+											calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+											calcViewXML += `      <measureMapping columnObjectName="ORDERS_VIEW" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+											calcViewXML += `    </measure>` + "\n"
+											order_idx++
+										}
+									}
+
+									calcViewXML += `  </baseMeasures>` + "\n"
+
+									calcViewXML += `  <calculatedMeasures/>` + "\n"
+									calcViewXML += `  <restrictedMeasures/>` + "\n"
+									calcViewXML += `  <localDimensions/>` + "\n"
+
+									calcViewXML += `</logicalModel>` + "\n"
+
+									calcViewXML += `<layout>` + "\n"
+									calcViewXML += `  <shapes>` + "\n"
+									calcViewXML += `    <shape modelObjectName="Output" modelObjectNameSpace="MeasureGroup">` + "\n"
+									calcViewXML += `      <upperLeftCorner x="0" y="0"/>` + "\n"
+									calcViewXML += `      <rectangleSize width="160"/>` + "\n"
+									calcViewXML += `    </shape>` + "\n"
+									calcViewXML += `  </shapes>` + "\n"
+									calcViewXML += `</layout>` + "\n"
+
+									calcViewXML += `</Calculation:scenario>`
 
 									// write file
-									err = ioutil.WriteFile(settingsFile, setValue, 0644)
+									err = ioutil.WriteFile(calcViewFile, []byte(calcViewXML), 0644)
 									handleError(err)
-								} else {
-									if *modifySettings {
-										if !*forceUpdates {
-											fmt.Println("Connection with name " + connName + " already exists!  -f to force replacement.")
+									
+
+								}
+
+							}
+						}
+					}, "items")
+
+					switch outputFormat {
+					case "json":
+						fmt.Println("\n ]\n}\n")
+					case "sqltools":
+						fmt.Println(`]}`)
+					}
+
+					addConn += `}`
+
+					// =====================================================================
+					// =====================================================================
+					// =====================================================================
+					// modifySettings = mod_settings.go
+					// =====================================================================
+					// =====================================================================
+					// =====================================================================
+
+					if *modifySettings {
+						fmt.Println("")
+						fmt.Println("modifySettings: " + "true")
+						if *forceUpdates {
+							fmt.Println("forceUpdates: " + "true")
+						} else {
+							fmt.Println("forceUpdates: " + "false")
+						}
+
+						fmt.Println("")
+
+						// fmt.Println("addConn: " + addConn)
+
+						//fmt.Println(runtime.GOOS)
+						//fmt.Println(runtime.GOARCH)
+
+						user, err := user.Current()
+						if err != nil {
+							log.Fatalf(err.Error())
+						}
+						homeDirectory := user.HomeDir
+						fmt.Printf("Home Directory: %s\n", homeDirectory)
+
+						var inSettings = false
+						var isBAS = false
+						// Scan for *.theia-workspace files in BAS ??
+						var defaultsFile = "Unknown"
+						//var defaultsExists = false
+
+						var settingsFile = "Unknown"
+						var settingsExists = false
+
+						var skipping = false
+
+						switch runtime.GOOS {
+						case "darwin":
+							fmt.Println("On Mac:")
+							//
+							// The current code-workspace file can be found by looking here.
+							// cat $HOME/Library/Application\ Support/Code/storage.json | grep -A 3 lastActiveWindow
+							// User (GLOBAL) settings file
+							// If this(User) file has a sqltools.connections object but the current code-workspace files doesn't
+							// then this is used.  Otherwise it's ignored as soon as the code-workspace settings->sqltools.connections exists
+							// Currently SQLTools won't allow writing settings into the User file, but will display them if they already exist.
+							settingsFile = homeDirectory + "/Library/Application Support/Code/User/settings.json"
+
+							defaultsFile = homeDirectory + "/Library/Application Support/Code/storage.json"
+							byteValue, err := ioutil.ReadFile(defaultsFile)
+							if err == nil {
+								configURIPath, err := jsonparser.GetString(byteValue, "windowsState", "lastActiveWindow", "workspaceIdentifier", "configURIPath")
+								if err == nil {
+									fmt.Println("configURIPath: " + configURIPath)
+									settingsFile = "/" + strings.TrimLeft(configURIPath, "file:/")
+									inSettings = true // File has sqltools.connections at the top-level
+								}
+							}
+
+						case "linux":
+							fmt.Println("On Linux:")
+
+							// Check to see if BAS
+							settingsFile = homeDirectory + "/.theia/settings.json"
+							if _, err := os.Stat(settingsFile); err == nil {
+								// path/to/whatever exists
+								fmt.Println("We are in BAS since " + settingsFile + " Exists!")
+								inSettings = false
+								isBAS = true
+							}
+
+							if inSettings {
+								settingsFile = "~/Code/User/"
+							} else { //User(Global) Settings
+								if !isBAS {
+									settingsFile = homeDirectory + "/.config/Code/User/settings.json"
+								}
+							}
+
+						case "windows":
+							fmt.Println("On Windoz:")
+
+							appData := os.Getenv("APPDATA")
+							fmt.Printf("appData: %s\n", appData)
+
+							//APPDATA=C:\Users\I830671\AppData\Roaming
+
+							defaultsFile = appData + "/Code/storage.json"
+							fmt.Println("defaultsFile: " + defaultsFile)
+
+							byteValue, err := ioutil.ReadFile(defaultsFile)
+							if err == nil {
+								configURIPath, err := jsonparser.GetString(byteValue, "windowsState", "lastActiveWindow", "workspaceIdentifier", "configURIPath")
+								if err == nil {
+									fmt.Println("configURIPath: " + configURIPath)
+									settingsFile = strings.TrimLeft(configURIPath, "file:/")
+									settingsFile = strings.Replace(settingsFile, "%3A", ":", -1)
+									//fmt.Println("settingsFile: " + settingsFile)
+									inSettings = true // File has sqltools.connections at the top-level
+								}
+							}
+						}
+
+						fmt.Println("settingsFile: " + settingsFile)
+						if inSettings {
+							fmt.Println("Look in settings...")
+						} else {
+							fmt.Println("Look at top-level..")
+						}
+
+						if _, err := os.Stat(settingsFile); err == nil {
+							// path/to/whatever exists
+							fmt.Println("settingsFile: " + settingsFile + " Exists!")
+							settingsExists = true
+
+						} else if os.IsNotExist(err) {
+							// path/to/whatever does *not* exist
+							fmt.Println("settingsFile: " + settingsFile + " Does NOT Exist!")
+
+						} else {
+							// Schrodinger: file may or may not exist. See err for details.
+
+							// Therefore, do *NOT* use !os.IsNotExist(err) to test for file existence
+							fmt.Println("settingsFile: " + settingsFile + " Existence Unknown!")
+							settingsExists = true
+						}
+
+						fmt.Println("")
+
+						// var newConn = `{
+						// 	"name": "CAPMT_SMC:subAcct",
+						// 	"group": "SMSI",
+						// 	"driver": "SAPHana",
+						// 	"dialect": "SAPHana",
+						// 	"server": "833726c5-cca3-4dce-a325-4385426009e7.hana.trial-us10.hanacloud.ondemand.com",
+						// 	"port": 443,
+						// 	"database": "D53EE042B6AD4E8093FF0A24F931586B",
+						// 	"username": "D53EE042B6AD4E8093FF0A24F931586B_B5IBO9PWMQ841D52POXNE26XN_RT",
+						// 	"password": "Mw9h7H.5r6CBidD2vtq.vxmzisxLAMx2_UJ9YrjZim2Yop-kUOcBII-g6VHYZMDpPzjT0PCQua.8i-V2f8MrjDqkGG6hRZAct2a2YIL7PFrlzeSDhO5qBOl6ni-VRF3t",
+						// 	"connectionTimeout": 30,
+						// 	"hanaOptions": {
+						// 		"encrypt": true,
+						// 		"sslValidateCertificate": true,
+						// 		"sslCryptoProvider": "openssl",
+						// 		"sslTrustStore": "-----BEGIN CERTIFICATE-----MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBhMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBDQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsBCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7PT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbRTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUwDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/EsrhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJFPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0lsYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQkCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=-----END CERTIFICATE-----"
+						// 		}
+						// 	}`
+
+						//connName, _ := jsonparser.GetString([]byte(newConn), "name")
+						connName, _ := jsonparser.GetString([]byte(addConn), "name")
+
+						var foundIdx int = -1
+
+						if settingsExists {
+							// read file
+							byteValue, err := ioutil.ReadFile(settingsFile)
+							if err != nil {
+								fmt.Print(err)
+							} else {
+								//err := jsonparser.GetString(data, "items", "[0]", "id")
+								//colorTheme, err := jsonparser.GetString(byteValue, "workbench.colorTheme")
+								//handleError(err)
+								//fmt.Println("colorTheme: " + colorTheme)
+
+								// var newValue []byte
+								// var newType jsonparser.ValueType
+								// var newOffset int = 0
+
+								var dataValue []byte
+								var dataType jsonparser.ValueType
+								var dataOffset int = 0
+								var needsSettings = false
+
+								if inSettings {
+									dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings")
+									if err != nil {
+										fmt.Println("settings" + " Key path not found")
+										needsSettings = true
+									} else {
+										dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings", "sqltools.connections")
+										if err != nil {
+											fmt.Println("sqltools.connections" + " Key path not found")
+											// We can go ahead and add it.
 										}
-										idxStr := "[" + strconv.Itoa(foundIdx) + "]"
-										// idxStr := strconv.Itoa(foundIdx)
-										// fmt.Println("idxStr:" + idxStr)
-										var setValue []byte
-										if inSettings {
-											// dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings", "sqltools.connections", idxStr)
-											// setValue, err = jsonparser.Set(byteValue, []byte(newConn), "settings", "sqltools.connections", idxStr)
-											if *modifySettings && *forceUpdates {
-												setValue, err = jsonparser.Set(byteValue, []byte(addConn), "settings", "sqltools.connections", idxStr)
-											}
+									}
+								} else {
+									dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "sqltools.connections")
+								}
+
+								if err != nil {
+									fmt.Println("sqltools.connections" + " Key path not found")
+									// We can go ahead and add it.
+								}
+
+								// fmt.Println("dataValue: " + string(dataValue))
+								// fmt.Println("offset: ", dataOffset)
+
+								if dataType == jsonparser.NotExist {
+									fmt.Println("offset: ", dataOffset)
+									fmt.Println("sqltools.connections" + " is NotExist")
+									// IF this is the case then we can safely create a new sqltools.connections array and append it to settings
+
+									var newSQLToolsConn string
+									newSQLToolsConn = string(byteValue)
+									newSQLToolsConn = strings.TrimSpace(newSQLToolsConn)
+									newSQLToolsConn = strings.TrimRight(newSQLToolsConn, "}")
+									newSQLToolsConn = strings.TrimSpace(newSQLToolsConn)
+									newSQLToolsConn += ",\n"
+									if needsSettings {
+										fmt.Println("adding settings {} ")
+										newSQLToolsConn += "\"settings\": \n { "
+									}
+									fmt.Println("adding sqltools.connections [] ")
+									newSQLToolsConn += "\"sqltools.connections\": [ \n"
+									//newSQLToolsConn += newConn + "] }"
+									newSQLToolsConn += addConn
+									newSQLToolsConn += "\n]\n"
+									if needsSettings {
+										newSQLToolsConn += "} \n"
+									}
+									newSQLToolsConn += "} \n"
+
+									// write file
+									err = ioutil.WriteFile(settingsFile, []byte(newSQLToolsConn), 0644)
+									handleError(err)
+
+								} else if dataType == jsonparser.Array {
+									// fmt.Println("sqltools.connections" + " is an Array")
+
+									var scidx int = 0
+									jsonparser.ArrayEach(dataValue, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+										name, _ := jsonparser.GetString(value, "name")
+										// fmt.Println("name: " + name)
+										if connName != name {
+											fmt.Println("keeping: " + name)
 										} else {
-											// dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "sqltools.connections", idxStr)
-											// setValue, err = jsonparser.Set(byteValue, []byte(newConn), "settings", "sqltools.connections", idxStr)
-											if *modifySettings && *forceUpdates {
-												setValue, err = jsonparser.Set(byteValue, []byte(addConn), "sqltools.connections", idxStr)
+											if *modifySettings {
+												if *forceUpdates {
+													fmt.Println("replacing: " + name)
+												} else {
+													fmt.Println("duplicate: " + name)
+												}
+											} else {
+												fmt.Println("skipping: " + name)
 											}
+											foundIdx = scidx
+											skipping = true
+										}
+										scidx = scidx + 1
+									})
+									// https://github.com/buger/jsonparser#set
+
+									if !skipping {
+										fmt.Println("adding:  " + connName + "")
+
+										var newSQLToolsConn string
+
+										newSQLToolsConn = string(dataValue)
+										newSQLToolsConn2 := strings.TrimRight(newSQLToolsConn, "]")
+										newSQLToolsConn = newSQLToolsConn2
+										if scidx > 0 {
+											newSQLToolsConn += ","
+										}
+										//newSQLToolsConn += newConn + "]"
+										newSQLToolsConn += addConn + "]"
+
+										var setValue []byte
+
+										// fmt.Println("attempt set: ")
+
+										if inSettings {
+											setValue, err = jsonparser.Set(byteValue, []byte(newSQLToolsConn), "settings", "sqltools.connections")
+										} else {
+											setValue, err = jsonparser.Set(byteValue, []byte(newSQLToolsConn), "sqltools.connections")
 										}
 										handleError(err)
 
-										//fmt.Println("setValue: " + string(setValue))
-										//fmt.Println("offset: ", dataOffset)
+										//fmt.Println("after set: ")
+										// jsonparser.ArrayEach(setValue, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+										// 	name, _ := jsonparser.GetString(value, "name")
+										// 	fmt.Println("name: " + name)
+										// })
 
+										// fmt.Println("newConn: " + newConn)
 										// fmt.Println("setValue: " + string(setValue))
 
-										if *modifySettings && *forceUpdates {
-											// write file
-											err = ioutil.WriteFile(settingsFile, setValue, 0644)
-											handleError(err)
-										}
-
+										// write file
+										err = ioutil.WriteFile(settingsFile, setValue, 0644)
+										handleError(err)
 									} else {
-										fmt.Println("Connection with name " + connName + " already exists!  Delete it first and rerun.")
+										if *modifySettings {
+											if !*forceUpdates {
+												fmt.Println("Connection with name " + connName + " already exists!  -f to force replacement.")
+											}
+											idxStr := "[" + strconv.Itoa(foundIdx) + "]"
+											// idxStr := strconv.Itoa(foundIdx)
+											// fmt.Println("idxStr:" + idxStr)
+											var setValue []byte
+											if inSettings {
+												// dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "settings", "sqltools.connections", idxStr)
+												// setValue, err = jsonparser.Set(byteValue, []byte(newConn), "settings", "sqltools.connections", idxStr)
+												if *modifySettings && *forceUpdates {
+													setValue, err = jsonparser.Set(byteValue, []byte(addConn), "settings", "sqltools.connections", idxStr)
+												}
+											} else {
+												// dataValue, dataType, dataOffset, err = jsonparser.Get(byteValue, "sqltools.connections", idxStr)
+												// setValue, err = jsonparser.Set(byteValue, []byte(newConn), "settings", "sqltools.connections", idxStr)
+												if *modifySettings && *forceUpdates {
+													setValue, err = jsonparser.Set(byteValue, []byte(addConn), "sqltools.connections", idxStr)
+												}
+											}
+											handleError(err)
+
+											//fmt.Println("setValue: " + string(setValue))
+											//fmt.Println("offset: ", dataOffset)
+
+											// fmt.Println("setValue: " + string(setValue))
+
+											if *modifySettings && *forceUpdates {
+												// write file
+												err = ioutil.WriteFile(settingsFile, setValue, 0644)
+												handleError(err)
+											}
+
+										} else {
+											fmt.Println("Connection with name " + connName + " already exists!  Delete it first and rerun.")
+										}
 									}
+
+								} else if dataType == jsonparser.Object {
+									fmt.Println("sqltools.connections" + " is Object")
+
+								} else if dataType == jsonparser.Null {
+									fmt.Println("sqltools.connections" + " is Null")
+
+								} else {
+									fmt.Println("sqltools.connections" + " is unexpected")
+
 								}
 
-							} else if dataType == jsonparser.Object {
-								fmt.Println("sqltools.connections" + " is Object")
-
-							} else if dataType == jsonparser.Null {
-								fmt.Println("sqltools.connections" + " is Null")
-
-							} else {
-								fmt.Println("sqltools.connections" + " is unexpected")
-
 							}
-
 						}
+
+					} else {
+						fmt.Println("modifySettings: " + "false")
 					}
-
-				} else {
-					fmt.Println("modifySettings: " + "false")
 				}
-			}
-
+			} // 999
 		}
 
 		// delete service key
@@ -853,7 +1188,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 				Alias:    "smsi",
 				HelpText: "Show service manager service instances for a service offering and plan.",
 				UsageDetails: plugin.Usage{
-					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a] [-cv]",
+					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a] [-cv [-at][-av][-aa]]",
 					Options: map[string]string{
 						"credentials": "Show credentials",
 						"meta":        "Include Meta containers",
@@ -865,6 +1200,9 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 						"f":           "Force updates (requires -m)",
 						"a":           "Offer All Containers option",
 						"cv":          "Output CalcView",
+						"at":          "Process all tables option",
+						"av":          "Process all views option",
+						"aa":          "Auto assign attirbutes/measures option",
 					},
 				},
 			},

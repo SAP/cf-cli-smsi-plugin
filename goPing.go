@@ -91,7 +91,7 @@ func main() {
 
 	// http://go-database-sql.org/retrieving.html
 	var (
-		name     string
+		tv_name  string
 		col_type string
 	)
 
@@ -101,13 +101,13 @@ func main() {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		err := rows.Scan(&name)
+		err := rows.Scan(&tv_name)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Print("TABLE: " + name + "\n")
 
-		cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM TABLE_COLUMNS  WHERE SCHEMA_NAME='" + SCHEMA + "' AND TABLE_NAME='" + name + "' AND INDEX_TYPE='NONE'")
+		cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM TABLE_COLUMNS  WHERE SCHEMA_NAME='" + SCHEMA + "' AND TABLE_NAME='" + tv_name + "' AND INDEX_TYPE='NONE'")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -117,7 +117,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Print(" " + name + " : " + col_type + "\n")
+			fmt.Print(" " + tv_name + " : " + col_type + "\n")
 
 		}
 		err = cols.Err()
@@ -142,18 +142,18 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Print("VIEW: " + name + "\n")
-		cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + SCHEMA + "' AND VIEW_NAME='" + name + "' AND NOT COLUMN_NAME='ID'")
+		fmt.Print("VIEW: " + tv_name + "\n")
+		cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + SCHEMA + "' AND VIEW_NAME='" + tv_name + "' AND NOT COLUMN_NAME='ID'")
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer cols.Close()
 		for cols.Next() {
-			err := cols.Scan(&name, &col_type)
+			err := cols.Scan(&tv_name, &col_type)
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Print(" " + name + " : " + col_type + "\n")
+			fmt.Print(" " + tv_name + " : " + col_type + "\n")
 
 		}
 		err = cols.Err()
