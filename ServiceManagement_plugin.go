@@ -1212,8 +1212,8 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Name: "service-management",
 		Version: plugin.VersionType{
 			Major: 1,
-			Minor: 1,
-			Build: 2,
+			Minor: 2,
+			Build: 0,
 		},
 		MinCliVersion: plugin.VersionType{
 			Major: 6,
