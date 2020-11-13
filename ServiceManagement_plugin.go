@@ -481,7 +481,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 								addConn += `` + `}` + "\n"
 
 								if *outputCV {
-									fmt.Printf("\nSchema: %s \nHost: %s \nPort: %s \n", schema, host, port)
+									// fmt.Printf("\nSchema: %s \nHost: %s \nPort: %s \n", schema, host, port)
 
 									c := driver.NewBasicAuthConnector(
 										host + ":" + port,
@@ -612,6 +612,8 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									whichTableViewName := "Unknown"
 									whichTableViewType := "Unknown"
 
+									var TableViewSelected = true
+
 									if len(foundTablesViews) > 1 {
 										if *allViews {
 											fmt.Printf("%d: %s \n", 0, "Include All Views")
@@ -624,14 +626,18 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 											fmt.Print("View> ")
 											var input string
 											fmt.Scanln(&input)
-											cidx, _ := strconv.Atoi(input)
-											if cidx == 0 && *allViews {
-												fmt.Printf("Using: %s \n", "All Views")
+											if input == "" {
+												TableViewSelected = false
 											} else {
-												whichTableViewName = foundTablesViews[cidx-1].TableViewName
-												//fmt.Printf("Using: %s \n", whichTableViewName)
-												whichTableViewType = foundTablesViews[cidx-1].TableViewType
-												item = 1
+												cidx, _ := strconv.Atoi(input)
+												if cidx == 0 && *allViews {
+													fmt.Printf("Using: %s \n", "All Views")
+												} else {
+													whichTableViewName = foundTablesViews[cidx-1].TableViewName
+													//fmt.Printf("Using: %s \n", whichTableViewName)
+													whichTableViewType = foundTablesViews[cidx-1].TableViewType
+													item = 1
+												}
 											}
 										}
 									} else {
@@ -640,157 +646,189 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										item = 1
 									}
 					
-									fmt.Printf("Using: %s %s\n", whichTableViewType, whichTableViewName)
+									if !TableViewSelected { 
+										fmt.Printf("No Table or View selected!")
+									} else {
 
-									calcViewColumnDetails := []ColumnDetails{}
-									item = 0
 
-									cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + whichTableViewName + "' AND NOT COLUMN_NAME='ID'")
-									if err != nil {
-										log.Fatal(err)
-									}
-									defer cols.Close()
+										fmt.Printf("Using: %s %s and creating/overwriting %s_CALCVIEW.hdbcalculationview in the local folder.\n", whichTableViewType, whichTableViewName, whichTableViewName)
 
-									for cols.Next() {
-										err := cols.Scan(&col_name, &col_type)
+										calcViewColumnDetails := []ColumnDetails{}
+										item = 0
+
+										cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + whichTableViewName + "' AND NOT COLUMN_NAME='ID'")
 										if err != nil {
 											log.Fatal(err)
 										}
-										fmt.Print(" " + col_name + " : " + col_type + " (a=attrib, m=measure, s=skip)\n")
-										fmt.Print("Type> ")
-										var input string
-										fmt.Scanln(&input)
-										if input == "a" {
-											fmt.Print("Attribute!\n")
-											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "ATTRIB", ColumnAggr: "NA"}
-											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
-											item = item + 1
-										} else if input == "m" {
-											fmt.Print("Measure!\n")
-											fmt.Print("Select aggregation " + " (v=var, s=sum, d=stddev, x=maximum, n=minimum, c=count, a=average)\n")
-											fmt.Print("Aggregation> ")
-											var aggreg string
-											fmt.Scanln(&aggreg)
-											if (aggreg != "v" && aggreg != "s" && aggreg != "d" && aggreg != "x" && aggreg != "n" && aggreg != "c" && aggreg != "a") { aggreg = "a" }
-											aggregName := "NA"
-											if aggreg == "v" {
-												aggregName = `sum" engineAggregation="var`
-											} else if aggreg == "s" {
-												aggregName = `sum`
-											} else if aggreg == "d" {
-												aggregName = `sum" engineAggregation="stddev`
-											} else if aggreg == "x" {
-												aggregName = "max"
-											} else if aggreg == "n" {
-												aggregName = "min"
-											} else if aggreg == "c" {
-												aggregName = `sum" engineAggregation="count`
-											} else if aggreg == "a" {
-												aggregName = `sum" engineAggregation="avg`
-											} else {
-												aggregName = `sum" engineAggregation="avg`
+										defer cols.Close()
+										
+										var defaultType = "a"
+										var attribUsed = false
+										var measureUsed = false
+
+										for cols.Next() {
+											err := cols.Scan(&col_name, &col_type)
+											if err != nil {
+												log.Fatal(err)
 											}
-											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "MEASURE", ColumnAggr: aggregName}
-											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
-											item = item + 1
+											if col_type == "NVARCHAR" || col_type == "DATE" || col_type == "DATETIME" {
+												fmt.Print(" " + col_name + " : " + col_type + " ([a]=attrib, m=measure, s=skip) ")
+												defaultType = "a"
+											} else {
+												fmt.Print(" " + col_name + " : " + col_type + " (a=attrib, [m]=measure, s=skip) ")
+												defaultType = "m"
+											}
+											fmt.Print("Type> ")
+											var input string
+											fmt.Scanln(&input)
+
+											if input == "" {
+												input = defaultType
+											}
+
+											if input == "a" {
+												attribUsed = true
+												//fmt.Print("Attribute!\n")
+												columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "ATTRIB", ColumnAggr: "NA"}
+												calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+												item = item + 1
+											} else if input == "m" {
+												measureUsed = true
+												//fmt.Print("Measure!\n")
+												fmt.Print("  Select aggregation " + " (v=var, s=sum, d=stddev, x=maximum, n=minimum, c=count, [a]=average) ")
+												fmt.Print("Aggregation> ")
+												var aggreg string
+												fmt.Scanln(&aggreg)
+
+												if aggreg == "" {
+													aggreg = "a"
+												}
+		
+												if (aggreg != "v" && aggreg != "s" && aggreg != "d" && aggreg != "x" && aggreg != "n" && aggreg != "c" && aggreg != "a") { aggreg = "a" }
+												aggregName := "NA"
+												if aggreg == "v" {
+													aggregName = `sum" engineAggregation="var`
+												} else if aggreg == "s" {
+													aggregName = `sum`
+												} else if aggreg == "d" {
+													aggregName = `sum" engineAggregation="stddev`
+												} else if aggreg == "x" {
+													aggregName = "max"
+												} else if aggreg == "n" {
+													aggregName = "min"
+												} else if aggreg == "c" {
+													aggregName = `sum" engineAggregation="count`
+												} else if aggreg == "a" {
+													aggregName = `sum" engineAggregation="avg`
+												} else {
+													aggregName = `sum" engineAggregation="avg`
+												}
+												columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "MEASURE", ColumnAggr: aggregName}
+												calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+												item = item + 1
+											} else {
+												fmt.Print("Skipped!\n")
+												columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "SKIP", ColumnAggr: "NA"}
+												calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
+												item = item + 1
+											}
+
+										}
+										err = cols.Err()
+										if err != nil {
+											log.Fatal(err)
+										}
+
+										for i := 0; i < len(calcViewColumnDetails); i++ {
+											fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+										}
+
+										if !(attribUsed && measureUsed) {
+											fmt.Print("You must select at least one field as an attribute and at least one field as a measure!\n")
 										} else {
-											fmt.Print("Skipped!\n")
-											columndetail := ColumnDetails{ColumnName: col_name, ColumnType: "SKIP", ColumnAggr: "NA"}
-											calcViewColumnDetails = append(calcViewColumnDetails, columndetail)
-											item = item + 1
+
+											// Now build the Calculation view.
+
+											var calcViewFile = "Unknown"
+
+											var calcViewName = "Unknown"
+
+											calcViewName = whichTableViewName + "_CALCVIEW"
+											calcViewFile = calcViewName + ".hdbcalculationview"
+
+											var calcViewXML string
+
+											calcViewXML = ""
+
+											calcViewXML += `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
+											calcViewXML += `<Calculation:scenario xmlns:Calculation="http://www.sap.com/ndb/BiModelCalculation.ecore" id="` + calcViewName + `" applyPrivilegeType="NONE" dataCategory="CUBE" schemaVersion="3.0" outputViewType="Aggregation" cacheInvalidationPeriod="HOURLY" enforceSqlExecution="false">` + "\n"
+											calcViewXML += `<descriptions defaultDescription="` + calcViewName + `"/>` + "\n"
+											calcViewXML += `<localVariables/>` + "\n"
+											calcViewXML += `<variableMappings/>` + "\n"
+											calcViewXML += `<dataSources>` + "\n"
+											calcViewXML += `  <DataSource id="` + whichTableViewName + `">` + "\n"
+											calcViewXML += `    <resourceUri>` + whichTableViewName + `</resourceUri>` + "\n"
+											calcViewXML += `  </DataSource>` + "\n"
+											calcViewXML += `</dataSources>` + "\n"
+											calcViewXML += `<calculationViews/>` + "\n"
+
+											calcViewXML += `<logicalModel id="` + whichTableViewName + `">` + "\n"
+
+											calcViewXML += `  <attributes>` + "\n"
+											var order_idx = 1
+											for i := 0; i < len(calcViewColumnDetails); i++ {
+												// fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+												if calcViewColumnDetails[i].ColumnType == "ATTRIB" {
+													calcViewXML += `    <attribute id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" displayAttribute="false" attributeHierarchyActive="false">` + "\n"
+													calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+													calcViewXML += `      <keyMapping columnObjectName="` + whichTableViewName + `" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+													calcViewXML += `    </attribute>` + "\n"
+													order_idx++
+												}
+											}
+
+											calcViewXML += `  </attributes>` + "\n"
+											calcViewXML += `  <calculatedAttributes/>` + "\n"
+
+											calcViewXML += `  <baseMeasures>` + "\n"
+
+											for i := 0; i < len(calcViewColumnDetails); i++ {
+												//fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+												if calcViewColumnDetails[i].ColumnType == "MEASURE" {
+													calcViewXML += `    <measure id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" aggregationType="` + calcViewColumnDetails[i].ColumnAggr + `" measureType="simple">` + "\n"
+													calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+													calcViewXML += `      <measureMapping columnObjectName="ORDERS_VIEW" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
+													calcViewXML += `    </measure>` + "\n"
+													order_idx++
+												}
+											}
+
+											calcViewXML += `  </baseMeasures>` + "\n"
+
+											calcViewXML += `  <calculatedMeasures/>` + "\n"
+											calcViewXML += `  <restrictedMeasures/>` + "\n"
+											calcViewXML += `  <localDimensions/>` + "\n"
+
+											calcViewXML += `</logicalModel>` + "\n"
+
+											calcViewXML += `<layout>` + "\n"
+											calcViewXML += `  <shapes>` + "\n"
+											calcViewXML += `    <shape modelObjectName="Output" modelObjectNameSpace="MeasureGroup">` + "\n"
+											calcViewXML += `      <upperLeftCorner x="0" y="0"/>` + "\n"
+											calcViewXML += `      <rectangleSize width="160"/>` + "\n"
+											calcViewXML += `    </shape>` + "\n"
+											calcViewXML += `  </shapes>` + "\n"
+											calcViewXML += `</layout>` + "\n"
+
+											calcViewXML += `</Calculation:scenario>`
+
+											// write file
+											err = ioutil.WriteFile(calcViewFile, []byte(calcViewXML), 0644)
+											handleError(err)
+											
 										}
-
 									}
-									err = cols.Err()
-									if err != nil {
-										log.Fatal(err)
-									}
-
-									for i := 0; i < len(calcViewColumnDetails); i++ {
-										fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
-									}
-									// Now build the Calculation view.
-
-									var calcViewFile = "Unknown"
-
-									var calcViewName = "Unknown"
-
-									calcViewName = whichTableViewName + "_CALCVIEW"
-									calcViewFile = calcViewName + ".hdbcalculationview"
-
-									var calcViewXML string
-
-									calcViewXML = ""
-
-									calcViewXML += `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
-									calcViewXML += `<Calculation:scenario xmlns:Calculation="http://www.sap.com/ndb/BiModelCalculation.ecore" id="` + calcViewName + `" applyPrivilegeType="NONE" dataCategory="CUBE" schemaVersion="3.0" outputViewType="Aggregation" cacheInvalidationPeriod="HOURLY" enforceSqlExecution="false">` + "\n"
-									calcViewXML += `<descriptions defaultDescription="` + calcViewName + `"/>` + "\n"
-									calcViewXML += `<localVariables/>` + "\n"
-									calcViewXML += `<variableMappings/>` + "\n"
-									calcViewXML += `<dataSources>` + "\n"
-									calcViewXML += `  <DataSource id="` + whichTableViewName + `">` + "\n"
-									calcViewXML += `    <resourceUri>` + whichTableViewName + `</resourceUri>` + "\n"
-									calcViewXML += `  </DataSource>` + "\n"
-									calcViewXML += `</dataSources>` + "\n"
-									calcViewXML += `<calculationViews/>` + "\n"
-
-									calcViewXML += `<logicalModel id="` + whichTableViewName + `">` + "\n"
-
-									calcViewXML += `  <attributes>` + "\n"
-									var order_idx = 1
-									for i := 0; i < len(calcViewColumnDetails); i++ {
-										// fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
-										if calcViewColumnDetails[i].ColumnType == "ATTRIB" {
-											calcViewXML += `    <attribute id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" displayAttribute="false" attributeHierarchyActive="false">` + "\n"
-											calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
-											calcViewXML += `      <keyMapping columnObjectName="` + whichTableViewName + `" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
-											calcViewXML += `    </attribute>` + "\n"
-											order_idx++
-										}
-									}
-
-									calcViewXML += `  </attributes>` + "\n"
-									calcViewXML += `  <calculatedAttributes/>` + "\n"
-
-									calcViewXML += `  <baseMeasures>` + "\n"
-
-									for i := 0; i < len(calcViewColumnDetails); i++ {
-										//fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
-										if calcViewColumnDetails[i].ColumnType == "MEASURE" {
-											calcViewXML += `    <measure id="` + calcViewColumnDetails[i].ColumnName + `" order="` + strconv.Itoa(order_idx) + `" aggregationType="` + calcViewColumnDetails[i].ColumnAggr + `" measureType="simple">` + "\n"
-											calcViewXML += `      <descriptions defaultDescription="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
-											calcViewXML += `      <measureMapping columnObjectName="ORDERS_VIEW" columnName="` + calcViewColumnDetails[i].ColumnName + `"/>` + "\n"
-											calcViewXML += `    </measure>` + "\n"
-											order_idx++
-										}
-									}
-
-									calcViewXML += `  </baseMeasures>` + "\n"
-
-									calcViewXML += `  <calculatedMeasures/>` + "\n"
-									calcViewXML += `  <restrictedMeasures/>` + "\n"
-									calcViewXML += `  <localDimensions/>` + "\n"
-
-									calcViewXML += `</logicalModel>` + "\n"
-
-									calcViewXML += `<layout>` + "\n"
-									calcViewXML += `  <shapes>` + "\n"
-									calcViewXML += `    <shape modelObjectName="Output" modelObjectNameSpace="MeasureGroup">` + "\n"
-									calcViewXML += `      <upperLeftCorner x="0" y="0"/>` + "\n"
-									calcViewXML += `      <rectangleSize width="160"/>` + "\n"
-									calcViewXML += `    </shape>` + "\n"
-									calcViewXML += `  </shapes>` + "\n"
-									calcViewXML += `</layout>` + "\n"
-
-									calcViewXML += `</Calculation:scenario>`
-
-									// write file
-									err = ioutil.WriteFile(calcViewFile, []byte(calcViewXML), 0644)
-									handleError(err)
-									
-
 								}
-
 							}
 						}
 					}, "items")
