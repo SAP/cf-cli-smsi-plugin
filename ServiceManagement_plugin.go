@@ -769,7 +769,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										fmt.Scanln(&levelName)
 
 										if levelName != "" {
-											fmt.Print("These are the fields you selected as attributes. \n")
+											fmt.Print("These are the fields you selected as attributes. \n\n")
 											for i := 0; i < len(calcViewColumnDetails); i++ {
 												if calcViewColumnDetails[i].ColumnType == "ATTRIB" {
 													fmt.Printf("%s \n", calcViewColumnDetails[i].ColumnName)
