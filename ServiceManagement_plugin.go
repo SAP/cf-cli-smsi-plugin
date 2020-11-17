@@ -24,7 +24,7 @@ import (
 	"github.com/SAP/go-hdb/driver"
 	// Register hdb driver.
 	_ "github.com/SAP/go-hdb/driver"
-
+	"sort"
 )
 
 type ServiceManagementPlugin struct {
@@ -56,6 +56,20 @@ type ColumnDetails struct {
 	ColumnType string
 	ColumnAggr string
 }
+
+type Levels struct {
+	level_name string
+	level_order int
+}
+
+// ByOrder implements sort.Interface based on the order field.
+type ByOrder []Levels
+
+func (a ByOrder) Len() int           { return len(a) }
+func (a ByOrder) Less(i, j int) bool { return a[i].level_order < a[j].level_order }
+func (a ByOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+
+
 
 
 
@@ -740,7 +754,53 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										}
 
 										for i := 0; i < len(calcViewColumnDetails); i++ {
-											fmt.Printf("%d. %s %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType, calcViewColumnDetails[i].ColumnAggr)
+											fmt.Printf("%d. %s %s \n", i+1, calcViewColumnDetails[i].ColumnName, calcViewColumnDetails[i].ColumnType)
+										}
+
+										fmt.Print("\nWould you like to specify levels for your attribute fields?(enter name or blank to skip) ")
+										fmt.Print("Level Name> ")
+										var levelName string
+										var numLevels = 0
+										
+										levelName = "Unassigned"
+										foundLevels := []Levels{}
+
+
+										fmt.Scanln(&levelName)
+
+										if levelName != "" {
+											fmt.Print("These are the fields you selected as attributes. \n")
+											for i := 0; i < len(calcViewColumnDetails); i++ {
+												if calcViewColumnDetails[i].ColumnType == "ATTRIB" {
+													fmt.Printf("%s \n", calcViewColumnDetails[i].ColumnName)
+													level := Levels{level_name: calcViewColumnDetails[i].ColumnName, level_order: 0}
+													foundLevels = append(foundLevels, level)
+													numLevels++
+												}
+											}
+											fmt.Print("\n")
+											
+											for i := 0; i < len(foundLevels); i++ {
+												fmt.Printf("Level order for %s field [1-%d](blank to skip)\n", foundLevels[i].level_name, numLevels)
+												fmt.Print("Order> ")
+												var levelOrder string
+												fmt.Scanln(&levelOrder)
+												if levelOrder != "" {
+													orderNumber, _ := strconv.Atoi(levelOrder)
+													if orderNumber != 0 {
+														foundLevels[i].level_order = orderNumber
+													}
+												} //blah
+											}
+					
+											sort.Sort(ByOrder(foundLevels))
+	
+											for i := 0; i < len(foundLevels); i++ {
+												if foundLevels[i].level_order != 0 {
+													fmt.Printf("%d %s \n", foundLevels[i].level_order, foundLevels[i].level_name )
+												}
+											} 										
+
 										}
 
 										if !(attribUsed && measureUsed) {
@@ -807,7 +867,37 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 
 											calcViewXML += `  <calculatedMeasures/>` + "\n"
 											calcViewXML += `  <restrictedMeasures/>` + "\n"
-											calcViewXML += `  <localDimensions/>` + "\n"
+
+											if levelName == "" {
+												calcViewXML += `  <localDimensions/>` + "\n"
+											} else {
+												calcViewXML += `  <localDimensions>` + "\n"
+												calcViewXML += `    <localDimension id="` + levelName + `">` + "\n"
+												for i := 0; i < len(foundLevels); i++ {
+													if foundLevels[i].level_order != 0 {
+														calcViewXML += `      <attributeRef xsi:type="DataFoundation:Attribute">` + foundLevels[i].level_name + `</attributeRef>` + "\n"
+													}
+												} 
+
+												calcViewXML += `      <hierarchies>` + "\n"
+												calcViewXML += `      		<hierarchy xsi:type="Dimension:LeveledHierarchy" id="` + levelName + `" aggregateAllNodes="true" orphanedNodesHandling="ROOT_NODES" rootNodeVisibility="ADD_ROOT_NODE" withRootNode="true" nodeStyle="LEVEL_NAME_ENFORCED" cacheEnabled="true" cycleHandling="BREAKUP" emptyValueIsNull="true">` + "\n"
+												calcViewXML += `      		  <descriptions defaultDescription="` + levelName + `"/>` + "\n"
+												calcViewXML += `      		  <unassignedMemberProperties mode="FALSE"/>` + "\n"
+												calcViewXML += `      		  <levels>` + "\n"
+
+												for i := 0; i < len(foundLevels); i++ {
+													if foundLevels[i].level_order != 0 {
+														calcViewXML += `      		  	<level levelAttribute="` + foundLevels[i].level_name + `" levelType="MDLEVEL_TYPE_REGULAR" order="` + strconv.Itoa(foundLevels[i].level_order) + `" orderAttribute="` + foundLevels[i].level_name + `" sortDirection="ASC"/>` + "\n"
+													}
+												} 
+
+												calcViewXML += `      		  </levels>` + "\n"
+												calcViewXML += `      		</hierarchy>` + "\n"
+												calcViewXML += `      </hierarchies>` + "\n"
+
+												calcViewXML += `    </localDimension>` + "\n"
+												calcViewXML += `  </localDimensions>` + "\n"
+											}
 
 											calcViewXML += `</logicalModel>` + "\n"
 
@@ -1213,7 +1303,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Version: plugin.VersionType{
 			Major: 1,
 			Minor: 2,
-			Build: 0,
+			Build: 1,
 		},
 		MinCliVersion: plugin.VersionType{
 			Major: 6,
