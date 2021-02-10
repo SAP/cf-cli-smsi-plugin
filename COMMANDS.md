@@ -10,7 +10,7 @@ cf uninstall-plugin ServiceManagement ; cf install-plugin ServiceManagement.osx 
 cf plugins | grep ServiceManage
 
 
-GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go ; chmod 755 ServiceManagement.osx ; cf uninstall-plugin ServiceManagement ; cf install-plugin ServiceManagement.osx -f ; cf plugins | grep ServiceManage
+GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go ; chmod 755 ServiceManagement.osx ; cf uninstall-plugin service-management ; cf install-plugin ServiceManagement.osx -f ; cf plugins | grep ServiceManage
 
 ```
 
@@ -44,15 +44,14 @@ darwin /amd64 (known as osx)
 
 ```
 GOOS=linux GOARCH=amd64 go build -o ServiceManagement.linux64 ServiceManagement_plugin.go
-GOOS=linux GOARCH=386 go build -o ServiceManagement.linux32 ServiceManagement_plugin.go
-GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go
-GOOS=windows GOARCH=amd64 go build -o ServiceManagement.win64 ServiceManagement_plugin.go
-GOOS=windows GOARCH=386 go build -o ServiceManagement.win32 ServiceManagement_plugin.go
-
 shasum -a 1 ServiceManagement.linux64
+GOOS=linux GOARCH=386 go build -o ServiceManagement.linux32 ServiceManagement_plugin.go
 shasum -a 1 ServiceManagement.linux32
+GOOS=darwin GOARCH=amd64 go build -o ServiceManagement.osx ServiceManagement_plugin.go
 shasum -a 1 ServiceManagement.osx
+GOOS=windows GOARCH=386 go build -o ServiceManagement.win32 ServiceManagement_plugin.go
 shasum -a 1 ServiceManagement.win32
+GOOS=windows GOARCH=amd64 go build -o ServiceManagement.win64 ServiceManagement_plugin.go
 shasum -a 1 ServiceManagement.win64
 
 

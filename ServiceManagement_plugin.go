@@ -17,6 +17,7 @@ import (
 
 	"code.cloudfoundry.org/cli/plugin"
 
+	//https://github.com/buger/jsonparser
 	"github.com/buger/jsonparser"
 
 	"crypto/tls"
@@ -70,9 +71,6 @@ func (a ByOrder) Less(i, j int) bool { return a[i].level_order < a[j].level_orde
 func (a ByOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 
-
-
-
 func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args []string) {
 
 	// flags
@@ -80,10 +78,13 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	serviceOfferingName := flags.String("offering", "hana", "Service offering")
 	servicePlanName := flags.String("plan", "hdi-shared", "Service plan")
 	showCredentials := flags.Bool("credentials", false, "Show credentials")
+	showCreds := flags.Bool("creds", false, "Show credentials shortcut")
 	includeMeta := flags.Bool("meta", false, "Include Meta containers")
+	includeMETA := flags.Bool("META", false, "Include Super META container")
 	includeOwner := flags.Bool("owner", false, "Include Owner credentials")
 	outputFormat := flags.String("o", "Txt", "Show as JSON | SQLTools | Txt)")
-	modifySettings := flags.Bool("m", false, "Modify settings.json")
+	modifySettings := flags.Bool("m", false, "Modify settings.json(SQLTools)")
+	defaultEnv := flags.Bool("de", false, "Create default-env-*.json file")
 	forceUpdates := flags.Bool("f", false, "Force updates (requires -m)")
 	offerAll := flags.Bool("a", false, "Offer All Containers option")
 	outputCV := flags.Bool("cv", false, "CalcView option")
@@ -94,6 +95,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	handleError(err)
 
 	serviceNameGiven := false
+
 
 	if args[0] == "service-manager-service-instances" {
 		/*
@@ -289,9 +291,19 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 					// for each item
 					var item = 0
 					var isMeta = false
+					var isMETA = false
+					var use_name = "not_used"
+
 					jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 						isMeta = false
+						isMETA = false
 						id, _ := jsonparser.GetString(value, "id")
+
+						jsonparser.ArrayEach(value, func(value2 []byte, dataType2 jsonparser.ValueType, offset2 int, err2 error) {
+							//fmt.Printf("\nLabel: %s", string(value2))
+							use_name = string(value2)
+									
+						}, "labels", "subdomain_name")
 
 						// get service binding
 						url5, err := jsonparser.GetString([]byte(strings.Join(serviceKey, "")), "sm_url")
@@ -315,11 +327,37 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						var splits = strings.Split(tenantID, "-")
 						if splits[0] == "TENANT" {
 							isMeta = true
+							use_name = "TENANT-" + splits[1] + "-META"
+						} else {
+							if tenantID == "__META__" {
+								isMETA = true
+								use_name = tenantID
+							} else {
+								use_name = splits[0]
+							}
 						}
 
-						if !isMeta || (isMeta && *includeMeta) {
+						var subdomain_name = ""
+
+						jsonparser.ArrayEach(value, func(value2 []byte, dataType2 jsonparser.ValueType, offset2 int, err2 error) {
+							//fmt.Printf("\nLabel: %s", string(value2))
+							subdomain_name = string(value2)
+									
+						}, "labels", "subdomain_name")
+
+						if subdomain_name != "" {
+							if isMeta {
+								use_name = "TENANT-" + subdomain_name + "-META"
+							} else {
+								use_name = subdomain_name
+							}
+						} 
+
+
+						if (!isMeta && !isMETA) || (isMeta && *includeMeta) || (isMETA && *includeMETA) {
 							//fmt.Printf("%d: %s \n", item, tenantID)
-							container := Containers{ContainerID: id, TenantID: tenantID}
+							//container := Containers{ContainerID: id, TenantID: tenantID}
+							container := Containers{ContainerID: id, TenantID: use_name}
 							foundContainers = append(foundContainers, container)
 							item = item + 1
 						}
@@ -352,6 +390,8 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						item = 1
 					}
 
+					//  Start composing output
+
 					switch outputFormat {
 					case "json":
 						fmt.Printf("{\n\"service_offering\": \"%s\", \n\"service_plan\": \"%s\", \n\"num_items\": %d, \n\"items\": \n [\n", serviceOfferingName, servicePlanName, item)
@@ -366,10 +406,14 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 					// for each item
 					item = 0
 					isMeta = false
+					isMETA = false
 					jsonparser.ArrayEach(body4Bytes, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 						//item = item + 1
 						isMeta = false
 						id, _ := jsonparser.GetString(value, "id")
+
+						var name_splits = strings.Split(id, "-")
+						use_name = name_splits[0]
 
 						name, _ := jsonparser.GetString(value, "name")
 
@@ -377,6 +421,14 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						updatedAt, _ := jsonparser.GetString(value, "updated_at")
 						ready, _ := jsonparser.GetBoolean(value, "ready")
 						usable, _ := jsonparser.GetBoolean(value, "usable")
+
+						//labels, _ := jsonparser.GetBoolean(value, "labels")
+						// You can use `ArrayEach` helper to iterate items [item1, item2 .... itemN]
+						jsonparser.ArrayEach(value, func(value2 []byte, dataType2 jsonparser.ValueType, offset2 int, err2 error) {
+							//fmt.Printf("\nLabel: %s", string(value2))
+							use_name = string(value2)
+									
+						}, "labels", "subdomain_name")
 
 						if (whichID == id) || (whichID == "ALL") {
 
@@ -428,14 +480,17 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 
 							// Need to use the SAPCP API to get the subdomain from the subaccount GUID which is the tenantID
 							// sapcp get accounts/subaccount b44f32d4-6e31-4d95-b17f-6c6fcdb37e1f
+							if *showCreds {
+								*showCredentials = *showCreds
+							}
 
-							if !isMeta || (isMeta && *includeMeta) {
+							if (!isMeta && !isMETA) || (isMeta && *includeMeta) || (isMETA && *includeMETA) {
 								item = item + 1
 								if outputFormat == "json" {
 									if item > 1 {
 										fmt.Printf(",\n")
 									}
-									fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, smdriver)
+									fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"short\": %s, \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, use_name, schema, host, port, url, smdriver)
 									if *showCredentials {
 										fmt.Printf(", \n  \"user\": \"%s\", \n  \"password\": \"%s\", \n  \"certificate\": \"%s\"", user, password, certificate)
 										if servicePlanName == "hdi-shared" && *includeOwner {
@@ -453,7 +508,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									}
 								} else {
 									//txt
-									fmt.Printf("\nName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, schema, host, port, url, smdriver)
+									fmt.Printf("\nName: %s \nId: %s \nTenant: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nShort: %s \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, tenantID, createdAt, updatedAt, ready, usable, use_name, schema, host, port, url, smdriver)
 									if *showCredentials {
 										fmt.Printf("User: %s \nPassword: %s \nCertificate: %s \n", user, password, certificate)
 										if servicePlanName == "hdi-shared" && *includeOwner {
@@ -579,9 +634,28 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									// }
 		
 
-											
+									rows, err := db.Query("SELECT TABLE_NAME FROM M_TABLES WHERE SCHEMA_NAME='" + schema + "'")
+									if err != nil {
+										log.Fatal(err)
+									}
+									defer rows.Close()
+									for rows.Next() {
+										err := rows.Scan(&tv_name)
+										if err != nil {
+											log.Fatal(err)
+										}
+										// fmt.Print("TABLE: " + tv_name + "\n")
 
-									rows, err := db.Query("SELECT VIEW_NAME FROM VIEWS WHERE SCHEMA_NAME='" + schema + "' AND NOT VIEW_TYPE='CALC'")
+										tableview := TablesViews{TableViewName: tv_name, TableViewType: "TABLE"}
+										foundTablesViews = append(foundTablesViews, tableview)
+										item = item + 1
+									}
+									err = rows.Err()
+									if err != nil {
+										log.Fatal(err)
+									}
+
+									rows, err = db.Query("SELECT VIEW_NAME FROM VIEWS WHERE SCHEMA_NAME='" + schema + "' AND NOT VIEW_TYPE='CALC'")
 									if err != nil {
 										log.Fatal(err)
 									}
@@ -596,27 +670,6 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										tableview := TablesViews{TableViewName: tv_name, TableViewType: "VIEW"}
 										foundTablesViews = append(foundTablesViews, tableview)
 										item = item + 1
-		
-
-										cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + tv_name + "' AND NOT COLUMN_NAME='ID'")
-										if err != nil {
-											log.Fatal(err)
-										}
-										defer cols.Close()
-										for cols.Next() {
-											err := cols.Scan(&col_name, &col_type)
-											if err != nil {
-												log.Fatal(err)
-											}
-											// fmt.Print(" " + col_name + " : " + col_type + "\n")
-
-										}
-										err = cols.Err()
-										if err != nil {
-											log.Fatal(err)
-										}
-
-										// fmt.Print("" + "\n")
 									}
 									err = rows.Err()
 									if err != nil {
@@ -670,18 +723,23 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										calcViewColumnDetails := []ColumnDetails{}
 										item = 0
 
-										cols, err := db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + whichTableViewName + "' AND NOT COLUMN_NAME='ID'")
+										if whichTableViewType == "TABLE" {
+											rows, err = db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM TABLE_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND TABLE_NAME='" + whichTableViewName + "' AND INDEX_TYPE='NONE'")
+										} else {
+											rows, err = db.Query("SELECT COLUMN_NAME, DATA_TYPE_NAME FROM VIEW_COLUMNS  WHERE SCHEMA_NAME='" + schema + "' AND VIEW_NAME='" + whichTableViewName + "' AND NOT COLUMN_NAME='ID'")
+										}
+
 										if err != nil {
 											log.Fatal(err)
 										}
-										defer cols.Close()
+										defer rows.Close()
 										
 										var defaultType = "a"
 										var attribUsed = false
 										var measureUsed = false
 
-										for cols.Next() {
-											err := cols.Scan(&col_name, &col_type)
+										for rows.Next() {
+											err := rows.Scan(&col_name, &col_type)
 											if err != nil {
 												log.Fatal(err)
 											}
@@ -748,7 +806,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 											}
 
 										}
-										err = cols.Err()
+										err = rows.Err()
 										if err != nil {
 											log.Fatal(err)
 										}
@@ -919,9 +977,100 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 										}
 									}
 								}
+
+								if *defaultEnv {
+									// {
+									// 	"VCAP_SERVICES": {
+									// 	  "hana": [
+									// 		{
+									// 		  "binding_name": null,
+									// 		  "credentials": {
+									// 			"certificate": "-----BEGIN CERTIFICATE-----\nMIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh\nMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3\nd3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBD\nQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVT\nMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j\nb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG\n9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsB\nCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97\nnh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt\n43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7P\nT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4\ngdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAO\nBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbR\nTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUw\nDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/Esr\nhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg\n06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJF\nPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0ls\nYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQk\nCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=\n-----END CERTIFICATE-----",
+									// 			"driver": "com.sap.db.jdbc.Driver",
+									// 			"hdi_password": "Bl6WyL9.1KSoJ4XzLAp31smmdbVP1iJxcVv.40gmfJbgA8xqVRQDwlTkkjGv9ecyfpe8M1uVHof_OhJj6X3SSwZ7UeeqyVagz_JDgoAkar6YhHDypztPMAYdrtUDlMoy",
+									// 			"hdi_user": "D7973087CCB04316B834C75FEB37AAA5_CSVFBQ87RA67WNVLY8ITC0HF6_DT",
+									// 			"host": "cd523e0f-9692-411a-9307-996297864e2f.hana.prod-us21.hanacloud.ondemand.com",
+									// 			"password": "Az0ZLCc2utEAb2-_hJXNk5Q8fk0Oyd60dDc..tt72nvMTiMpAD3KSBaVB8CLsvQxOk5CHQ5ikGPnmO3HQWV7m58TIK0A-AOkHTMrbQwL8SgELQfddotO6L20115N8NQ8",
+									// 			"port": "443",
+									// 			"schema": "D7973087CCB04316B834C75FEB37AAA5",
+									// 			"url": "jdbc:sap://cd523e0f-9692-411a-9307-996297864e2f.hana.prod-us21.hanacloud.ondemand.com:443?encrypt=true&validateCertificate=true&currentschema=D7973087CCB04316B834C75FEB37AAA5",
+									// 			"user": "D7973087CCB04316B834C75FEB37AAA5_CSVFBQ87RA67WNVLY8ITC0HF6_RT"
+									// 		  },
+									// 		  "instance_name": "CAPMT_HDI",
+									// 		  "label": "hana",
+									// 		  "name": "CAPMT_HDI",
+									// 		  "plan": "hdi-shared",
+									// 		  "provider": null,
+									// 		  "syslog_drain_url": null,
+									// 		  "tags": [
+									// 			"hana",
+									// 			"database",
+									// 			"relational"
+									// 		  ],
+									// 		  "volume_mounts": []
+									// 		}
+									// 	  ]
+									// 	}
+									//}
+			
+									var newDefaultEnv string
+									newDefaultEnv += "{\n"
+									newDefaultEnv += `  "VCAP_SERVICES": {` + "\n"
+									newDefaultEnv += `    "hana": [{`+ "\n"
+									newDefaultEnv += `        "binding_name": null,`+ "\n"
+									newDefaultEnv += `        "credentials": {`+ "\n"
+									newDefaultEnv += `          "certificate": "` + certificate + `",`+ "\n"
+									newDefaultEnv += `          "driver": "com.sap.db.jdbc.Driver",`+ "\n"
+									newDefaultEnv += `          "hdi_password": "` + hdipassword + `",`+ "\n"
+									newDefaultEnv += `          "hdi_user": "` + hdiuser + `",`+ "\n"
+									newDefaultEnv += `          "host": "` + host + `",`+ "\n"
+									newDefaultEnv += `          "password": "` + password + `",`+ "\n"
+									newDefaultEnv += `          "port": "` + port + `",`+ "\n"
+									newDefaultEnv += `          "schema": "` + schema + `",`+ "\n"
+									newDefaultEnv += `          "url": "jdbc:sap://` + host + `:` + port + `?encrypt=true&validateCertificate=true&currentschema=` + schema + `",`+ "\n"
+									newDefaultEnv += `          "user": "` + user + `"`+ "\n"
+									newDefaultEnv += `        },`+ "\n"
+									newDefaultEnv += `        "instance_name": "` + use_name + `",`+ "\n"
+									newDefaultEnv += `        "label": "hana",`+ "\n"
+									newDefaultEnv += `        "name": "` + use_name + `",`+ "\n"
+									newDefaultEnv += `        "plan": "hdi-shared",`+ "\n"
+									newDefaultEnv += `        "provider": null,`+ "\n"
+									newDefaultEnv += `        "syslog_drain_url": null,`+ "\n"
+									newDefaultEnv += `        "tags": [`+ "\n"
+									newDefaultEnv += `          "hana",`+ "\n"
+									newDefaultEnv += `          "database",`+ "\n"
+									newDefaultEnv += `          "relational"`+ "\n"
+									newDefaultEnv += `        ],`+ "\n"
+									newDefaultEnv += `        "volume_mounts": []`+ "\n"
+									newDefaultEnv += `    }]`+ "\n"
+									newDefaultEnv += `  }`+ "\n"
+									newDefaultEnv += "}\n"
+			
+									var defaultEnvFile = "default-env-" + use_name + ".json"
+									err = ioutil.WriteFile(defaultEnvFile, []byte(newDefaultEnv), 0644)
+									handleError(err)
+
+									fmt.Println(":")
+									fmt.Println("Example SMSI plugin commands:")
+									fmt.Printf("# Get List of all tables in the %s container.\n", use_name)
+									fmt.Printf("./smsi-cli -s %s tables\n", use_name)
+									fmt.Printf("# Get List of all views in the %s container.\n", use_name)
+									fmt.Printf("./smsi-cli -s %s views\n", use_name)
+									fmt.Printf("# Get Field details of a specific table.\n")
+									fmt.Printf("./smsi-cli -s %s ti SCHEMA TABLE\n", use_name)
+									fmt.Printf("# List the Top 4 rows of a specific table (in default SCHEMA).\n")
+									fmt.Printf("./smsi-cli -s %s qs -q '\"SELECT ID,TITLE FROM MY_BOOKSHOP_BOOKS LIMIT 4\"'\n", use_name)
+									fmt.Printf("# OR you can \"wrap\" hana-cli invocations with smsi-cli using the -b=backup_files and -r=restore_files flags.\n")
+									fmt.Printf("./smsi-cli -b -s %s ; hana-cli qs -q \"SELECT * FROM MY_BOOKSHOP_BOOKS LIMIT 4\" ; ./smsi-cli -r -s %s\n", use_name, use_name)
+									fmt.Printf("# Find details of what's possible with hana-cli help or https://www.npmjs.com/package/hana-cli \n")
+
+								}
+			
 							}
 						}
 					}, "items")
+
+					//  End composing output
 
 					switch outputFormat {
 					case "json":
@@ -1282,8 +1431,9 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						}
 
 					} else {
-						fmt.Println("modifySettings: " + "false")
+						// fmt.Println("modifySettings: " + "false")
 					}
+
 				}
 			} // 999
 		}
@@ -1303,7 +1453,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Version: plugin.VersionType{
 			Major: 1,
 			Minor: 2,
-			Build: 1,
+			Build: 2,
 		},
 		MinCliVersion: plugin.VersionType{
 			Major: 6,
@@ -1316,15 +1466,16 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 				Alias:    "smsi",
 				HelpText: "Show service manager service instances for a service offering and plan.",
 				UsageDetails: plugin.Usage{
-					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a] [-cv [-at][-av][-aa]]",
+					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [--offering <SERVICE_OFFERING>] [--plan <SERVICE_PLAN>] [--credentials] [--meta] [--META] [--owner] [-o JSON | SQLTools | Txt] [-m [-f]] [-a] [-cv [-at][-av][-aa]]",
 					Options: map[string]string{
 						"credentials": "Show credentials",
 						"meta":        "Include Meta containers",
+						"META":        "Include Super META container",
 						"owner":       "Include Owner credentials",
 						"o":           "Show as JSON | SQLTools | Txt (default 'Txt')",
 						"offering":    "Service offering (default 'hana')",
 						"plan":        "Service plan (default 'hdi-shared')",
-						"m":           "Modify settings.json",
+						"m":           "Modify settings.json (SQLTools)",
 						"f":           "Force updates (requires -m)",
 						"a":           "Offer All Containers option",
 						"cv":          "Output CalcView",
