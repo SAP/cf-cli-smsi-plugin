@@ -505,9 +505,9 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									if item > 1 {
 										fmt.Printf(`,`)
 									}
-									fmt.Printf(`{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+tenantID, host, port, schema, user, password, certificate)
+									fmt.Printf(`{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+use_name, host, port, schema, user, password, certificate)
 									if servicePlanName == "hdi-shared" && *includeOwner {
-										fmt.Printf(`,{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+spaceName+":"+tenantID+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
+										fmt.Printf(`,{"name": "%s", "group": "SMSI", "dialect": "SAPHana", "driver": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+spaceName+":"+use_name+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
 									}
 								} else {
 									//txt
@@ -524,7 +524,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									addConn += `},{`
 								}
 								// Put all the addConn stuff here
-								addConn += "\n" + `"name": "` + serviceManagerName + `:` + spaceName + `:` + tenantID + `",` + "\n"
+								addConn += "\n" + `"name": "` + serviceManagerName + `:` + spaceName + `:` + use_name + `",` + "\n"
 								addConn += `"group": "` + serviceManagerName + `:` + spaceName + `",` + "\n"
 								addConn += `"driver": "` + `SAPHana` + `",` + "\n"
 								addConn += `"dialect": "` + `SAPHana` + `",` + "\n"
@@ -1153,6 +1153,10 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 							fmt.Println("On Linux:")
 
 							// Check to see if BAS
+							// projects/.vscode/settings.json
+							// settingsFile: /home/user/.theia/settings.json
+
+							//settingsFile = homeDirectory + "/.theia/settings.json"
 							settingsFile = homeDirectory + "/.theia/settings.json"
 							if _, err := os.Stat(settingsFile); err == nil {
 								// path/to/whatever exists
@@ -1322,6 +1326,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									var scidx int = 0
 									jsonparser.ArrayEach(dataValue, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 										name, _ := jsonparser.GetString(value, "name")
+										name = use_name
 										// fmt.Println("name: " + name)
 										if connName != name {
 											fmt.Println("keeping: " + name)
