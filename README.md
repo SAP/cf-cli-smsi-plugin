@@ -7,14 +7,17 @@ SPDX-License-Identifier: Apache-2.0
 
 # service management plugin for Cloud Foundry tools
 
+## Description
+
 This is a Cloud Foundry(CF) Command Line Interface(CLI) plugin designed to make it easier when using the [Service Management](https://help.sap.com/viewer/product/SERVICEMANAGEMENT/Cloud/en-US) service in Cloud Foundry. It uses the service manager REST API to get details of service instances that the service management service has created.
 
-# Requirements
+## Requirements
+
 Installed CloudFoundry CLI - ensure that CloudFoundry CLI is installed and working. For more information about installation of CloudFoundry CLI, please visit the official CloudFoundry [documentation](https://docs.cloudfoundry.org/cf-cli/install-go-cli.html).
 
 If you are running from within VSCode, you need to create a Workspace before using the -m (Modify settings.json) option.
 
-# Download and Installation
+## Download and Installation
 
 Check whether you have a previous version installed, using the command: `cf plugins`. If the ServiceManagement plugin is already installed, you need to uninstall it first and then to install the new version. You can uninstall the plugin using command `cf uninstall-plugin ServiceManagement`.
 
@@ -83,20 +86,28 @@ Examples:
 
 For more information, see the command help output available via `cf [command] --help` or `cf help [command]`.
 
-# Further Information
+## Further Information
 Tutorials:
 - [SAP Cloud Platform Developer Onboarding](https://www.youtube.com/playlist?list=PLkzo92owKnVw3l4fqcLoQalyFi9K4-UdY)
 - [SAP HANA Academy](https://www.youtube.com/saphanaacademy)
 
-# Changes
+## Changes
 
 Refer to the [CHANGELOG](CHANGELOG.md) for revision details.
 
-# Support
+## Known Issues
 
-If you encounter an issue, you can [create a ticket](issues/new/choose).
+There are currently no known issues.
 
-# Contributing
+## How to obtain support
+
+[Create an issue](https://github.com/SAP/cf-cli-smsi-plugin/issues) in this repository if you find a bug or have questions about the content.
+ 
+For additional support, [ask a question in SAP Community](https://answers.sap.com/questions/ask.html).
+
+## Contributing
+
+Contact [andrewlunde](andrew.lunde@sap.com)
 
 ## Fork & create a branch
 If this is something you think you can fix, then fork this repo and create a branch with a descriptive name.
@@ -106,9 +117,8 @@ Go to GitHub and make a [Pull Request](pulls)
 
 In the subject of the pull request, use *feat:* to denote an enhancement, **fix:** to denote a bug fix, ***chore:*** for small configuration updates or ***docs:*** for documentation updates and briefly describe the bug fix or enhancement you are contributing.
 
-# Versioning
+## Versioning
 The Service Management plugin follows Semantic Versioning. These components strictly adhere to the [MAJOR].[MINOR].[PATCH] numbering system (also known as [BREAKING].[FEATURE].[FIX]).
 
-# License
-
-This project is licensed under the Apache Software License, v. 2 except as noted otherwise in the [LICENSE](LICENSES/Apache-2.0.txt) file.
+## License
+Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This project is licensed under the Apache Software License, version 2.0 except as noted otherwise in the [LICENSE](LICENSES/Apache-2.0.txt) file.
