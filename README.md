@@ -89,7 +89,7 @@ For more information, see the command help output available via `cf [command] --
 
 ## Further Information
 Tutorials:
-- [SAP Cloud Platform Developer Onboarding](https://www.youtube.com/playlist?list=PLkzo92owKnVw3l4fqcLoQalyFi9K4-UdY)
+- [SAP Business Technology Platform Developer Onboarding](https://www.youtube.com/playlist?list=PLkzo92owKnVw3l4fqcLoQalyFi9K4-UdY)
 - [SAP HANA Academy](https://www.youtube.com/saphanaacademy)
 
 ## Changes
