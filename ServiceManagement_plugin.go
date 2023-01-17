@@ -172,7 +172,6 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			}
 		}
 
-		fmt.Println("Using service manager = " + serviceManagerName)
 
 		serviceOfferingName := strings.ToLower(*serviceOfferingName)
 		servicePlanName := strings.ToLower(*servicePlanName)
@@ -184,6 +183,10 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		default:
 			fmt.Println("Output format must be JSON, SQLTools or Txt")
 			return
+		}
+		
+		if outputFormat != "json" && outputFormat != "sqltools" {
+			fmt.Println("Using service manager = " + serviceManagerName)
 		}
 
 		// check instance exists
@@ -493,7 +496,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 									if item > 1 {
 										fmt.Printf(",\n")
 									}
-									fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"subdomain\": %s, \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, use_name, schema, host, port, url, smdriver)
+									fmt.Printf("  {\n  \"name\": \"%s\", \n  \"id\": \"%s\", \n  \"tenant\": \"%s\", \n  \"created_at\": \"%s\", \n  \"updated_at\": \"%s\", \n  \"ready\": %t, \n  \"usable\": %t, \n  \"subdomain\": \"%s\", \n  \"schema\": \"%s\", \n  \"host\": \"%s\", \n  \"port\": \"%s\", \n  \"url\": \"%s\", \n  \"driver\": \"%s\"", name, id, tenantID, createdAt, updatedAt, ready, usable, use_name, schema, host, port, url, smdriver)
 									if *showCredentials {
 										fmt.Printf(", \n  \"user\": \"%s\", \n  \"password\": \"%s\", \n  \"certificate\": \"%s\"", user, password, certificate)
 										if servicePlanName == "hdi-shared" && *includeOwner {
